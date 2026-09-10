@@ -1,6 +1,6 @@
 #!/data/data/com.termux/files/usr/bin/bash
 #==========================================================================
-#  淡蓝酒馆 · Termux 一键部署与管理 v2.7
+#  淡蓝酒馆 · Termux 一键部署与管理 v2.8 (整合优化版)
 # 全国内源加速 · 无需梯子 · 打开 Termux 自动弹出菜单
 # 功能：局域网访问 + 密码验证 + 随机端口 + 推荐配置 + 扩展管理 + 清理
 #==========================================================================
@@ -24,9 +24,60 @@ check_installed() { [ -f "$INSTALL_DIR/start.sh" ]; }
 is_running()      { pgrep -f "node.*server.js" >/dev/null 2>&1; }
 command_exists()  { command -v "$1" >/dev/null 2>&1; }
 
+# ======================================
+# 统一：node_modules 瘦身
+# ======================================
+slim_node_modules() {
+    local dir="${1:-$INSTALL_DIR/node_modules}"
+    [ -d "$dir" ] || return 0
+    find "$dir" -type f \( \
+        -name "README*" -o -name "CHANGELOG*" -o -name "LICENSE*" \
+        -o -name "AUTHORS*" -o -name "*.md" -o -name "*.map" \
+        -o -name ".travis.yml" -o -name ".eslintrc*" \
+        -o -name ".prettierrc*" -o -name ".editorconfig" \) \
+        -delete 2>/dev/null
+    find "$dir" -type d \( \
+        -name "test" -o -name "tests" -o -name "__tests__" \
+        -o -name "docs" -o -name "examples" -o -name "benchmark" \
+        -o -name ".github" -o -name ".circleci" \
+        -o -name ".vscode" -o -name ".idea" \) \
+        -exec rm -rf {} + 2>/dev/null
+    rm -rf "$dir/.cache" 2>/dev/null
+}
+
+# ======================================
+# 统一：npm 缓存清理
+# ======================================
+clean_npm_cache() {
+    command_exists npm && npm cache clean --force 2>/dev/null
+    rm -rf "$HOME/.npm" 2>/dev/null
+}
+
+# ======================================
+# 统一：Foxium 下载
+# ======================================
+FOXIUM_URLS=(
+    "https://raw.githubusercontent.com/likesugar/Txst/main/ffss.sh"
+    "https://gh-proxy.com/https://raw.githubusercontent.com/likesugar/Txst/main/ffss.sh"
+    "https://ghproxy.net/https://raw.githubusercontent.com/likesugar/Txst/main/ffss.sh"
+    "https://ghfast.top/https://raw.githubusercontent.com/likesugar/Txst/main/ffss.sh"
+)
+
+download_foxium() {
+    local dest="${1:-$HOME/ffss.sh}"
+    for URL in "${FOXIUM_URLS[@]}"; do
+        echo -e "  → 尝试: $(echo "$URL" | cut -d'/' -f3)"
+        if curl -L "$URL" -o "$dest" --connect-timeout 10 --max-time 30 --retry 1 2>/dev/null && [ -s "$dest" ]; then
+            chmod +x "$dest"
+            return 0
+        fi
+        rm -f "$dest" 2>/dev/null
+    done
+    return 1
+}
+
 # ---- git / node / npm 瘦身 ----
 slim_git_node() {
-    # ===== git 瘦身 =====
     if command_exists git; then
         rm -rf "$PREFIX"/share/doc/git* \
                "$PREFIX"/share/man/man1/git* \
@@ -40,7 +91,6 @@ slim_git_node() {
         echo -e "  ${GREEN}✓ git 已瘦身（删除文档/man/templates/gui）${NC}"
     fi
 
-    # ===== node / npm 瘦身 =====
     if command_exists npm; then
         rm -rf "$PREFIX"/lib/node_modules/npm/docs \
                "$PREFIX"/lib/node_modules/npm/man \
@@ -49,8 +99,7 @@ slim_git_node() {
                "$PREFIX"/share/man/man1/node* \
                "$PREFIX"/share/man/man1/npm* \
                "$PREFIX"/share/doc/node* 2>/dev/null
-        npm cache clean --force 2>/dev/null
-        rm -rf "$HOME/.npm" 2>/dev/null
+        clean_npm_cache
         echo -e "  ${GREEN}✓ node/npm 已瘦身（删除 docs/man/corepack/缓存）${NC}"
     fi
 }
@@ -60,28 +109,42 @@ slim_git_node() {
 # 用法: clean_and_reinstall_deps [--clean-cache] [--no-slim] [--quiet] [--label TEXT]
 # ======================================
 clean_and_reinstall_deps() {
-    local clean_cache=0 do_slim=1 quiet=0 label="依赖"
+    local clean_cache=0 do_slim=1 label="依赖"
+
+    # 解析参数
     while [ $# -gt 0 ]; do
         case "$1" in
             --clean-cache) clean_cache=1 ;;
             --no-slim)     do_slim=0 ;;
-            --quiet)       quiet=1 ;;
+            --quiet)       ST_QUIET=1 ;;
             --label)       label="$2"; shift ;;
         esac
         shift
     done
-    log() { [ "$quiet" = "1" ] || echo -e "$@"; }
+
+    # 内部日志函数（尊重 quiet）
+    log() {
+        [ "${ST_QUIET:-0}" = "1" ] && return 0
+        echo -e "$@"
+    }
+    err() {
+        # 错误始终显示，不受 quiet 影响
+        echo -e "$@" >&2
+    }
 
     [ -d "$INSTALL_DIR" ] || {
-        echo -e "${RED}✗ 安装目录不存在: $INSTALL_DIR${NC}"
+        err "${RED}✗ 安装目录不存在: $INSTALL_DIR${NC}"
         return 1
     }
 
     if is_running; then
         log "${CYAN}正在停止运行中的酒馆...${NC}"
-        fn_stop 2>/dev/null || true
+        fn_stop >/dev/null 2>&1 || true
         sleep 1
     fi
+
+    # 关键：把 quiet 标志导出给子 shell
+    export ST_QUIET="${ST_QUIET:-0}"
 
     (
         cd "$INSTALL_DIR" || exit 1
@@ -96,19 +159,18 @@ clean_and_reinstall_deps() {
             log "  ${GREEN}✓ package-lock.json${NC}"
         fi
         if [ "$clean_cache" = "1" ]; then
-            npm cache clean --force 2>/dev/null
-            rm -rf "$HOME/.npm" 2>/dev/null
+            clean_npm_cache
             log "  ${GREEN}✓ npm 缓存${NC}"
         fi
 
         log "${CYAN}📦 安装${label}（淘宝镜像加速）...${NC}"
         npm config set registry https://registry.npmmirror.com 2>/dev/null || true
 
-        if ! npm install --omit=dev --ignore-scripts --no-audit --no-fund 2>/dev/null; then
+        if ! npm install --omit=dev --ignore-scripts --no-audit --no-fund >/dev/null 2>&1; then
             log "${YELLOW}⚠️ 快速安装失败，尝试完整安装...${NC}"
-            if ! npm install --omit=dev --no-audit --no-fund 2>/dev/null; then
-                echo -e "${RED}❌ ${label}安装失败${NC}"
-                echo -e "${YELLOW}💡 手动执行: cd $INSTALL_DIR && npm install${NC}"
+            if ! npm install --omit=dev --no-audit --no-fund >/dev/null 2>&1; then
+                err "${RED}❌ ${label}安装失败${NC}"
+                err "${YELLOW}💡 手动执行: cd $INSTALL_DIR && npm install${NC}"
                 exit 1
             fi
         fi
@@ -116,36 +178,16 @@ clean_and_reinstall_deps() {
 
         if [ "$do_slim" = "1" ]; then
             log "${CYAN}🧹 瘦身...${NC}"
-            find node_modules -type f \( \
-                -name "README*" -o -name "CHANGELOG*" -o -name "LICENSE*" \
-                -o -name "AUTHORS*" -o -name "*.md" -o -name "*.map" \
-                -o -name ".travis.yml" -o -name ".eslintrc*" \
-                -o -name ".prettierrc*" -o -name ".editorconfig" \) \
-                -delete 2>/dev/null
-            find node_modules -type d \( \
-                -name "test" -o -name "tests" -o -name "__tests__" \
-                -o -name "docs" -o -name "examples" -o -name "benchmark" \
-                -o -name ".github" -o -name ".circleci" \
-                -o -name ".vscode" -o -name ".idea" \) \
-                -exec rm -rf {} + 2>/dev/null
-            rm -rf node_modules/.cache 2>/dev/null
+            slim_node_modules
             log "  ${GREEN}✓ 瘦身完成${NC}"
         fi
     )
+
+    # 清理 quiet 标志，避免影响后续调用
+    unset ST_QUIET
 }
 
-# ---- 自动检测并关闭局域网（启动时执行，静默模式） ----
-auto_disable_lan_on_start() {
-    if [ -f "$LAN_FLAG" ] && ! is_running; then
-        rm -f "$LAN_FLAG"
-        if [ -f "$INSTALL_DIR/config.yaml" ]; then
-            sed -i 's/^listen:.*/listen: false/' "$INSTALL_DIR/config.yaml" 2>/dev/null
-            sed -i 's/^port:.*/port: 8000/' "$INSTALL_DIR/config.yaml" 2>/dev/null
-        fi
-    fi
-}
-
-# ---- 获取局域网 IP（仅使用 ifconfig） ----
+# ---- 获取局域网 IP ----
 get_lan_ip() {
     local ifconfig_cmd=""
     if command_exists ifconfig; then
@@ -178,32 +220,36 @@ get_password_status() {
         return
     fi
     local auth_mode=$(grep "^basicAuthMode:" "$INSTALL_DIR/config.yaml" 2>/dev/null | awk '{print $2}')
-    local username=$(grep "^  username:" "$INSTALL_DIR/config.yaml" 2>/dev/null | awk '{print $2}' | tr -d '"')
-    if [ "$auth_mode" = "true" ] && [ -n "$username" ] && [ "$username" != '""' ]; then
-        echo "已开启 (账号: $username)"
-    elif [ "$auth_mode" = "true" ]; then
-        echo "已开启 (未设账号)"
+    if [ "$auth_mode" = "true" ]; then
+        echo "开启"
     else
-        echo "未开启"
+        echo "关闭"
+    fi
+}
+
+# ======================================
+# 统一：访问地址显示
+# ======================================
+print_access_url() {
+    local PORT=$(get_current_port)
+    if [ -f "$LAN_FLAG" ]; then
+        local IP=$(get_lan_ip)
+        if [ -n "$IP" ]; then
+            echo -e "${GREEN}🟢 运行中 → http://${IP}:${PORT} ${NC}"
+        else
+            echo -e "${GREEN}🟢 运行中 → 端口 ${PORT} ${NC}"
+        fi
+    else
+        echo -e "${GREEN}🟢 运行中 → http://127.0.0.1:${PORT}${NC}"
     fi
 }
 
 # ---- 状态显示 ----
 status_text() {
     if is_running; then
-        local PORT=$(get_current_port)
-        if [ -f "$LAN_FLAG" ]; then
-            local IP=$(get_lan_ip)
-            if [ -n "$IP" ]; then
-echo -e "${GREEN}🟢 运行中 → http://${IP}:${PORT} ${NC}"
-            else
-echo -e "${GREEN}🟢 运行中 → 端口 ${PORT} ${NC}"
-            fi
-        else
-echo -e "${GREEN}🟢 运行中 → http://127.0.0.1:${PORT}${NC}"
-        fi
+        print_access_url
     else
-echo -e "${YELLOW}🔴 未运行${NC}"
+        echo -e "${YELLOW}🔴 未运行${NC}"
     fi
 }
 
@@ -241,7 +287,7 @@ show_menu() {
     echo ""
 }
 
-# ---- 生成随机端口 (10000-49151) ----
+# ---- 生成随机端口 ----
 random_port() {
     echo $((10000 + RANDOM % 39152))
 }
@@ -250,7 +296,6 @@ random_port() {
 # 首次安装
 # ======================================
 do_install() {
-    # ===== 存储权限交互式检测 =====
     local STORAGE_DIR="$HOME/storage/shared"
 
     if [ ! -d "$STORAGE_DIR" ]; then
@@ -295,7 +340,6 @@ do_install() {
     echo "  ========================"
     echo ""
 
-    # [1/6] 换清华源
     echo "[1/6] 配置国内镜像..."
     if [ -f "$PREFIX/etc/apt/sources.list" ]; then
         cp "$PREFIX/etc/apt/sources.list" "$PREFIX/etc/apt/sources.list.bak" 2>/dev/null || true
@@ -304,20 +348,17 @@ do_install() {
     pkg update -y 2>/dev/null || pkg update -y
     echo "  ✓ Termux → 清华镜像"
 
-    # [2/6] 装 git + nodejs + 网络工具
     echo "[2/6] 安装运行环境..."
     pkg install -y git nodejs-lts net-tools 2>/dev/null || { echo -e "${RED}  ✗ 依赖安装失败${NC}"; return 1; }
     echo "  ✓ Node.js $(node -v)"
     echo "  ✓ ifconfig 已安装"
 
-    # [3/6] 配置 npm 加速
     echo "[3/6] 配置 npm 加速..."
     npm config set registry https://registry.npmmirror.com
     export NPM_CONFIG_REGISTRY=https://registry.npmmirror.com
     export NODE_OPTIONS="--max-old-space-size=512"
     echo "  ✓ npm → 淘宝镜像"
 
-    # [4/6] 克隆酒馆（多代理轮换）
     echo "[4/6] 下载酒馆源码..."
     cd ~
     MIRRORS="
@@ -342,49 +383,28 @@ https://github.com/SillyTavern/SillyTavern
     cd "$INSTALL_DIR"
     git remote set-url origin https://github.com/SillyTavern/SillyTavern 2>/dev/null || true
 
-    # [5/6] 强制彻底重置依赖（公共函数）
     echo "[5/6] 清理旧依赖并重新安装（约 1-2 分钟）..."
     clean_and_reinstall_deps --clean-cache --label "依赖" || return 1
 
-    # [5.5/6] 自动清理残余文件
     echo "[5.5/6] 自动清理残余文件..."
     cd "$INSTALL_DIR"
     rm -rf "$HOME/.npm" 2>/dev/null
     rm -f .*.tmp .*.swp .*.swo .*~ *~ 2>/dev/null
     echo "  ✓ 清理完成"
 
-    # [5.6/6] git / node / npm 系统级瘦身
     echo "[5.6/6] git / node 瘦身..."
     slim_git_node
 
-    # 创建备份目录
     mkdir -p "$BACKUP_DIR"
 
-    # ===== 预安装 Foxium 工具箱 =====
     echo ""
     echo -e "${CYAN}🦊 正在预安装 Foxium 工具箱...${NC}"
-
-    local FOXIUM_URLS=(
-        "https://gh-proxy.com/https://raw.githubusercontent.com/likesugar/Txst/main/ffss.sh"
-        "https://mirror.ghproxy.com/https://raw.githubusercontent.com/likesugar/Txst/main/ffss.sh"
-        "https://raw.githubusercontent.com/likesugar/Txst/main/ffss.sh"
-    )
     local FOX_OK=0
-    for URL in "${FOXIUM_URLS[@]}"; do
-        echo -e "  → 尝试下载: $(echo "$URL" | cut -d'/' -f3)"
-        if curl -L "$URL" -o "$HOME/ffss.sh" --connect-timeout 10 --max-time 30 --retry 1 2>/dev/null; then
-            if [ -s "$HOME/ffss.sh" ]; then
-                chmod +x "$HOME/ffss.sh"
-                echo -e "${GREEN}✅ Foxium 工具箱已预安装到 ~/ffss.sh${NC}"
-                FOX_OK=1
-                break
-            fi
-        fi
-        rm -f "$HOME/ffss.sh" 2>/dev/null
-    done
-
-    if [ "$FOX_OK" != "1" ]; then
-        echo -e "${YELLOW}⚠️ Foxium 预安装失败，可在菜单中按 [10] 重新下载${NC}"
+    if download_foxium "$HOME/ffss.sh"; then
+        echo -e "${GREEN}✅ Foxium 工具箱已预安装到 ~/ffss.sh${NC}"
+        FOX_OK=1
+    else
+        echo -e "${YELLOW}⚠️ Foxium 预安装失败，可在菜单中按 [7] 重新下载${NC}"
     fi
 
     echo ""
@@ -396,14 +416,14 @@ https://github.com/SillyTavern/SillyTavern
     echo "  💡 输入 y 开启局域网访问"
     echo "  💡 输入 m 设置密码验证"
     echo "  💡 输入 5 查看推荐配置"
-    echo "  💡 输入 10 使用 Foxium 工具箱"
+    echo "  💡 输入 7 使用 Foxium 工具箱"
     echo ""
 
     if [ "$FOX_OK" = "1" ]; then
         echo -e "${CYAN}🦊 Foxium 工具箱已准备就绪！${NC}"
         echo -e "${YELLOW}是否现在启动 Foxium 工具箱？${NC}"
         echo -e "  ${GREEN}[y]${NC} 立即启动"
-        echo -e "  ${RED}[n]${NC} 稍后手动启动（菜单选 10）"
+        echo -e "  ${RED}[n]${NC} 稍后手动启动（菜单选 7）"
         printf "选择 [y/N]: "
         read -r RUN_FOX
 
@@ -414,11 +434,11 @@ https://github.com/SillyTavern/SillyTavern
             sleep 1
             bash "$HOME/ffss.sh"
         else
-            echo -e "${GREEN}✓ 已跳过，可在菜单中按 [10] 启动${NC}"
+            echo -e "${GREEN}✓ 已跳过，可在菜单中按 [7] 启动${NC}"
             sleep 1
         fi
     else
-        echo -e "${YELLOW}💡 Foxium 工具箱未预安装成功，可在菜单中按 [10] 重新下载${NC}"
+        echo -e "${YELLOW}💡 Foxium 工具箱未预安装成功，可在菜单中按 [7] 重新下载${NC}"
         sleep 2
     fi
 }
@@ -525,7 +545,7 @@ fn_install_extension() {
 }
 
 # ======================================
-# 安装单个扩展（静默代理模式）
+# 安装单个扩展
 # ======================================
 install_one() {
     local repo="$1"
@@ -555,6 +575,8 @@ install_one() {
     fi
 
     local cloned=0
+    local branch_args=()
+    [ -n "$branch" ] && branch_args=(--branch "$branch")
 
     if [[ "$repo" =~ github\.com ]]; then
         local repo_path="${repo#https://github.com/}"
@@ -573,32 +595,25 @@ install_one() {
         echo -e "  ${CYAN}⏳ 正在下载...${NC}"
         for PROXY in "${PROXY_PREFIXES[@]}"; do
             local PROXY_URL="${PROXY}${repo_path}"
-            if [ -n "$branch" ]; then
-                if git clone "$PROXY_URL" "$EXT_DIR" --branch "$branch" --depth 1 2>/dev/null; then
+            if git clone "$PROXY_URL" "$EXT_DIR" "${branch_args[@]}" --depth 1 2>/dev/null; then
+                if [ -n "$branch" ]; then
                     echo -e "${GREEN}✅ 安装成功: $display (${branch})${NC}"
-                    cloned=1
-                    break
-                fi
-            else
-                if git clone "$PROXY_URL" "$EXT_DIR" --depth 1 2>/dev/null; then
+                else
                     echo -e "${GREEN}✅ 安装成功: $display${NC}"
-                    cloned=1
-                    break
                 fi
+                cloned=1
+                break
             fi
         done
     else
         echo -e "  ${CYAN}⏳ 正在下载...${NC}"
-        if [ -n "$branch" ]; then
-            if git clone "$repo" "$EXT_DIR" --branch "$branch" --depth 1 2>/dev/null; then
+        if git clone "$repo" "$EXT_DIR" "${branch_args[@]}" --depth 1 2>/dev/null; then
+            if [ -n "$branch" ]; then
                 echo -e "${GREEN}✅ 安装成功: $display (${branch})${NC}"
-                cloned=1
-            fi
-        else
-            if git clone "$repo" "$EXT_DIR" --depth 1 2>/dev/null; then
+            else
                 echo -e "${GREEN}✅ 安装成功: $display${NC}"
-                cloned=1
             fi
+            cloned=1
         fi
     fi
 
@@ -677,7 +692,7 @@ EOF
 }
 
 # ======================================
-# 重装依赖 (Fix npm) - 使用公共函数
+# 重装依赖
 # ======================================
 fn_reinstall_deps() {
     if ! check_installed; then
@@ -754,7 +769,7 @@ fn_clean() {
     if [ -d "$HOME/.npm" ]; then
         local npm_cache_size
         npm_cache_size=$(du -sh "$HOME/.npm" 2>/dev/null | cut -f1)
-        rm -rf "$HOME/.npm" 2>/dev/null
+        clean_npm_cache
         echo -e "${GREEN}✓ 已清理 ~/.npm 缓存（${npm_cache_size}）${NC}"
         cleaned=1
     fi
@@ -772,9 +787,7 @@ fn_clean() {
     fi
 
     if [ -d "node_modules" ]; then
-        find node_modules -type f \( -name "README*" -o -name "CHANGELOG*" -o -name "LICENSE*" -o -name "AUTHORS*" -o -name "*.md" -o -name "*.map" -o -name ".travis.yml" -o -name ".eslintrc*" -o -name ".prettierrc*" -o -name ".editorconfig" \) -delete 2>/dev/null
-        find node_modules -type d \( -name "test" -o -name "tests" -o -name "__tests__" -o -name "docs" -o -name "examples" -o -name "benchmark" \) -exec rm -rf {} + 2>/dev/null
-        find node_modules -type d \( -name ".github" -o -name ".circleci" -o -name ".vscode" -o -name ".idea" \) -exec rm -rf {} + 2>/dev/null
+        slim_node_modules
         echo -e "${GREEN}✓ 已清理 node_modules 中的文档/测试文件${NC}"
         cleaned=1
     fi
@@ -856,7 +869,7 @@ fn_clean() {
 }
 
 # ======================================
-# Foxium 工具箱（简化版 - 不检查更新）
+# Foxium 工具箱
 # ======================================
 fn_foxium() {
     echo -e "${CYAN}${BOLD}═══════ 🦊 Foxium 工具箱 ═══════${NC}"
@@ -875,39 +888,18 @@ fn_foxium() {
 
     echo -e "${CYAN}正在下载 Foxium 工具箱...${NC}"
 
-    local FOXIUM_URLS=(
-        "https://raw.githubusercontent.com/likesugar/Txst/main/ffss.sh"
-        "https://gh-proxy.com/https://raw.githubusercontent.com/likesugar/Txst/main/ffss.sh"
-        "https://ghproxy.net/https://raw.githubusercontent.com/likesugar/Txst/main/ffss.sh"
-        "https://ghfast.top/https://raw.githubusercontent.com/likesugar/Txst/main/ffss.sh"
-    )
-
-    local OK=0
-    for URL in "${FOXIUM_URLS[@]}"; do
-        echo -e "  → 尝试下载..."
-        if curl -L "$URL" -o ffss.sh --connect-timeout 10 2>/dev/null; then
-            if [ -s ffss.sh ]; then
-                echo -e "${GREEN}✅ 下载成功${NC}"
-                OK=1
-                break
-            fi
-        fi
-    done
-
-    if [ "$OK" != "1" ]; then
+    if download_foxium "$HOME/ffss.sh"; then
+        echo -e "${GREEN}✅ Foxium 工具箱已安装到 ~/ffss.sh${NC}"
+        echo -e "${CYAN}正在启动...${NC}"
+        echo ""
+        bash "$HOME/ffss.sh"
+    else
         echo -e "${RED}❌ 下载失败，请检查网络连接${NC}"
         echo -e "${YELLOW}💡 可尝试手动执行:${NC}"
         echo -e "  ${CYAN}curl -L https://raw.githubusercontent.com/likesugar/Txst/main/ffss.sh -o ~/ffss.sh && bash ~/ffss.sh${NC}"
         printf "\n按回车返回..."
         read -r _
-        return
     fi
-
-    chmod +x ffss.sh
-    echo -e "${GREEN}✅ Foxium 工具箱已安装到 ~/ffss.sh${NC}"
-    echo -e "${CYAN}正在启动...${NC}"
-    echo ""
-    bash ffss.sh
 }
 
 # ======================================
@@ -946,7 +938,7 @@ fn_lan_on() {
     echo -e "${CYAN}  随机端口: ${PORT} (避免冲突)${NC}"
 
     local PASS_STATUS=$(get_password_status)
-    if [[ "$PASS_STATUS" == "未开启" ]]; then
+    if [[ "$PASS_STATUS" == "开启" ]]; then
         echo -e "${YELLOW}⚠️ 密码验证未开启，局域网内任何人都能访问${NC}"
         echo -e "${YELLOW}  建议按 m 设置密码验证${NC}"
     fi
@@ -1085,7 +1077,7 @@ fn_set_password() {
                 echo -e "${YELLOW}密码认证未开启${NC}"
             fi
             if is_running; then
-                echo -e "${YELLOW}  ⚠️ 需要重启酒馆才能生效)${NC}"
+                echo -e "${YELLOW}  ⚠️ 需要重启酒馆才能生效${NC}"
             fi
             ;;
         3)
@@ -1138,17 +1130,8 @@ fn_start() {
     sleep 3
 
     if is_running; then
-        local PORT=$(get_current_port)
-        if [ -f "$LAN_FLAG" ]; then
-            local IP=$(get_lan_ip)
-            if [ -n "$IP" ]; then
-                echo -e "${GREEN}✓ 已启动 → http://${IP}:${PORT} ${NC}"
-            else
-                echo -e "${GREEN}✓ 已启动 → 端口 ${PORT} ${NC}"
-            fi
-        else
-            echo -e "${GREEN}✓ 已启动 → http://127.0.0.1:${PORT}${NC}"
-        fi
+        echo -e "${GREEN}✓ 已启动${NC}"
+        print_access_url
     else
         echo -e "${RED}✗ 启动失败${NC}"
     fi
@@ -1167,6 +1150,51 @@ fn_restart() {
     fn_start
 }
 
+# ======================================
+# 统一：Tag 选择
+# ======================================
+choose_tag() {
+    local tags=()
+    while IFS= read -r tag; do
+        tags+=("$tag")
+    done < <(git tag --sort=-creatordate 2>/dev/null | head -n 10)
+
+    [ ${#tags[@]} -eq 0 ] && return 1
+
+    # ⚠️ 所有提示走 stderr，避免被 $(...) 捕获
+    {
+        echo -e "${YELLOW}最近的 ${#tags[@]} 个版本号：${NC}"
+        for i in "${!tags[@]}"; do
+            printf "  ${GREEN}[%d]${NC} %s\n" $((i+1)) "${tags[$i]}"
+        done
+        echo ""
+    } >&2
+
+    while true; do
+        printf "请输入版本序号 (1-%d) 或直接输入版本号: " ${#tags[@]} >&2
+        read -r IN
+        IN=$(echo "$IN" | xargs)
+        [ -z "$IN" ] && return 1
+
+        if [[ "$IN" =~ ^[0-9]+$ ]]; then
+            if [ "$IN" -ge 1 ] && [ "$IN" -le ${#tags[@]} ]; then
+                echo "${tags[$((IN-1))]}"      # ← 只有这行走 stdout
+                return 0
+            else
+                echo -e "${RED}序号超出范围。${NC}" >&2
+                continue
+            fi
+        else
+            if git rev-parse -q --verify "refs/tags/$IN" >/dev/null 2>&1; then
+                echo "$IN"                     # ← 只有这行走 stdout
+                return 0
+            else
+                echo -e "${RED}未找到名为 '$IN' 的 Tag。${NC}" >&2
+                continue
+            fi
+        fi
+    done
+}
 # ---- 更新 ----
 fn_update() {
     if ! check_installed; then
@@ -1227,37 +1255,7 @@ fn_update() {
                 echo -e "${RED}未检测到 Tag。${NC}"
                 return
             fi
-            echo -e "${YELLOW}最近的 ${#available_tags[@]} 个版本号：${NC}"
-            for i in "${!available_tags[@]}"; do
-                printf "  ${GREEN}[%d]${NC} %s\n" $((i+1)) "${available_tags[$i]}"
-            done
-            echo ""
-            while true; do
-                printf "请输入版本序号 (1-%d) 或直接输入版本号: " ${#available_tags[@]}
-                read -r TAG_INPUT
-                TAG_INPUT=$(echo "$TAG_INPUT" | xargs)
-                if [ -z "$TAG_INPUT" ]; then
-                    echo -e "${RED}输入为空，操作取消。${NC}"
-                    return
-                fi
-                if [[ "$TAG_INPUT" =~ ^[0-9]+$ ]]; then
-                    if [ "$TAG_INPUT" -ge 1 ] && [ "$TAG_INPUT" -le ${#available_tags[@]} ]; then
-                        selected_tag="${available_tags[$((TAG_INPUT-1))]}"
-                        break
-                    else
-                        echo -e "${RED}序号超出范围。${NC}"
-                        continue
-                    fi
-                else
-                    if git rev-parse -q --verify "refs/tags/$TAG_INPUT" >/dev/null 2>&1; then
-                        selected_tag="$TAG_INPUT"
-                        break
-                    else
-                        echo -e "${RED}未找到名为 '$TAG_INPUT' 的 Tag。${NC}"
-                        continue
-                    fi
-                fi
-            done
+            selected_tag=$(choose_tag) || { echo -e "${RED}操作取消。${NC}"; return; }
             target_ref="tags/$selected_tag"
             target_label="Tag $selected_tag"
             ;;
@@ -1281,7 +1279,6 @@ fn_update() {
         echo -e "${RED}更新失败，请检查网络或版本号是否正确。${NC}"
     fi
 }
-
 fn_logs() {
     if ! check_installed; then echo -e "${RED}未安装${NC}"; return; fi
     echo -e "${CYAN}=== 最近 30 行 ===${NC}"
@@ -1312,6 +1309,8 @@ fn_rollback() {
     printf "请选择 [1-2]: "
     read -r RB_CHOICE
 
+    local TARGET=""
+
     case "$RB_CHOICE" in
         2)
             echo -e "${YELLOW}最近的 10 个提交记录：${NC}"
@@ -1325,48 +1324,7 @@ fn_rollback() {
             fi
             ;;
         *)
-            local tags=()
-            while IFS= read -r tag; do
-                tags+=("$tag")
-            done < <(git tag --sort=-creatordate 2>/dev/null | head -n 10)
-
-            if [ ${#tags[@]} -eq 0 ]; then
-                echo -e "${RED}未检测到任何 Tag。${NC}"
-                return
-            fi
-
-            echo -e "${YELLOW}最近的 ${#tags[@]} 个版本号 (Tags)：${NC}"
-            for i in "${!tags[@]}"; do
-                printf "  ${GREEN}[%d]${NC} %s\n" $((i+1)) "${tags[$i]}"
-            done
-            echo ""
-
-            while true; do
-                printf "请输入版本序号 (1-%d) 或直接输入版本号: " ${#tags[@]}
-                read -r TARGET_INPUT
-                TARGET_INPUT=$(echo "$TARGET_INPUT" | xargs)
-                if [ -z "$TARGET_INPUT" ]; then
-                    echo -e "${RED}输入为空，操作取消。${NC}"
-                    return
-                fi
-                if [[ "$TARGET_INPUT" =~ ^[0-9]+$ ]]; then
-                    if [ "$TARGET_INPUT" -ge 1 ] && [ "$TARGET_INPUT" -le ${#tags[@]} ]; then
-                        TARGET="${tags[$((TARGET_INPUT-1))]}"
-                        break
-                    else
-                        echo -e "${RED}序号超出范围。${NC}"
-                        continue
-                    fi
-                else
-                    TARGET="$TARGET_INPUT"
-                    if git rev-parse -q --verify "refs/tags/$TARGET" >/dev/null 2>&1; then
-                        break
-                    else
-                        echo -e "${RED}未找到名为 '$TARGET' 的 Tag。${NC}"
-                        continue
-                    fi
-                fi
-            done
+            TARGET=$(choose_tag) || { echo -e "${RED}操作取消。${NC}"; return; }
             TARGET="tags/$TARGET"
             ;;
     esac
@@ -1383,36 +1341,454 @@ fn_rollback() {
     fi
 }
 
+# ======================================
+# 备份管理
+# ======================================
 fn_backup() {
     if ! check_installed; then echo -e "${RED}未安装${NC}"; return; fi
     mkdir -p "$BACKUP_DIR"
-    NAME="ST_$(date +%Y%m%d_%H%M%S).tar.gz"
-    echo -e "${CYAN}备份中...${NC}"
-    cd "$INSTALL_DIR"
-    tar czf "$BACKUP_DIR/$NAME" data/ 2>/dev/null
-    echo -e "${GREEN}✓ $BACKUP_DIR/$NAME ($(du -h "$BACKUP_DIR/$NAME" | cut -f1))${NC}"
-    printf "按回车返回..."; read -r _
+
+    while true; do
+        clear
+        echo -e "${CYAN}${BOLD}═══════ 💾 备份管理 ═══════${NC}"
+        echo ""
+        echo -e "  ${BOLD}创建备份：${NC}"
+        echo -e "  ${GREEN}[1]${NC} 仅数据 (data/)              ${CYAN}最小体积${NC}"
+        echo -e "  ${GREEN}[2]${NC} 数据 + 配置 (data/ + config.yaml)"
+        echo -e "  ${GREEN}[3]${NC} 完整备份 (+ 第三方扩展)"
+        echo ""
+        echo -e "  ${BOLD}管理备份：${NC}"
+        echo -e "  ${YELLOW}[4]${NC} 查看备份列表"
+        echo -e "  ${YELLOW}[5]${NC} 删除备份"
+        echo -e "  ${YELLOW}[6]${NC} 清理旧备份 (保留最近 N 个)"
+        echo -e "  ${YELLOW}[7]${NC} 导出到共享存储"
+        echo ""
+        echo -e "  ${RED}[0]${NC} 返回"
+        echo ""
+        printf "选择: "
+        read -r BK_CHOICE
+
+        case "$BK_CHOICE" in
+            1) do_backup "data" ;;
+            2) do_backup "data_config" ;;
+            3) do_backup "full" ;;
+            4) list_backups ;;
+            5) delete_backup ;;
+            6) clean_old_backups ;;
+            7) export_backup ;;
+            0) return ;;
+            *) echo -e "${RED}无效选项${NC}"; sleep 1 ;;
+        esac
+
+        echo ""
+        printf "按回车继续..."
+        read -r _
+    done
 }
 
+# ---- 执行备份 ----
+do_backup() {
+    local mode="$1"
+    local DATE_STR
+    DATE_STR=$(date +"%Y%m%d_%H%M%S")
+    local NAME=""
+    local TARGETS=""
+    local DESC=""
+
+    case "$mode" in
+        data)
+            NAME="ST-${DATE_STR}-仅数据.tar.gz"
+            TARGETS="data/"
+            DESC="仅数据"
+            ;;
+        data_config)
+            NAME="ST-${DATE_STR}-数据配置.tar.gz"
+            TARGETS="data/ config.yaml"
+            DESC="数据 + 配置"
+            ;;
+        full)
+            NAME="ST-${DATE_STR}-完整备份.tar.gz"
+            TARGETS="data/ config.yaml public/scripts/extensions/third-party/"
+            DESC="完整备份"
+            ;;
+    esac
+
+    echo ""
+    echo -e "${CYAN}📦 正在创建备份 (${DESC})...${NC}"
+    cd "$INSTALL_DIR" || return
+
+    # 过滤掉不存在的目标，避免 tar 报错
+    local VALID_TARGETS=""
+    for t in $TARGETS; do
+        [ -e "$t" ] && VALID_TARGETS="$VALID_TARGETS $t"
+    done
+
+    if [ -z "$VALID_TARGETS" ]; then
+        echo -e "${RED}✗ 没有可备份的内容${NC}"
+        return 1
+    fi
+
+    if tar czf "$BACKUP_DIR/$NAME" $VALID_TARGETS 2>/dev/null; then
+        local SIZE
+        SIZE=$(du -h "$BACKUP_DIR/$NAME" 2>/dev/null | cut -f1)
+        echo -e "${GREEN}✅ 备份完成：$NAME (${SIZE})${NC}"
+        echo -e "${CYAN}   📁 $BACKUP_DIR/$NAME${NC}"
+    else
+        echo -e "${RED}✗ 备份失败${NC}"
+        rm -f "$BACKUP_DIR/$NAME" 2>/dev/null
+        return 1
+    fi
+}
+
+# ---- 列出备份 ----
+list_backups() {
+    echo ""
+    echo -e "${CYAN}${BOLD}📋 备份列表${NC}"
+    echo ""
+
+    local FILES
+    FILES=$(ls -1t "$BACKUP_DIR"/*.tar.gz 2>/dev/null)
+
+    if [ -z "$FILES" ]; then
+        echo -e "${YELLOW}  (无备份)${NC}"
+        return
+    fi
+
+    local i=1
+    local total_size=0
+    while IFS= read -r f; do
+        local size
+        size=$(du -h "$f" 2>/dev/null | cut -f1)
+        local date
+        date=$(stat -c '%y' "$f" 2>/dev/null | cut -d'.' -f1)
+        [ -z "$date" ] && date=$(date -r "$f" '+%Y-%m-%d %H:%M:%S' 2>/dev/null)
+        printf "  ${GREEN}[%2d]${NC} %-40s ${CYAN}%6s${NC}  %s\n" \
+            "$i" "$(basename "$f")" "$size" "$date"
+        i=$((i+1))
+    done <<< "$FILES"
+
+    echo ""
+    local count
+    count=$(echo "$FILES" | wc -l)
+    local total
+    total=$(du -sh "$BACKUP_DIR" 2>/dev/null | cut -f1)
+    echo -e "  ${YELLOW}共 ${count} 个备份，合计 ${total}${NC}"
+}
+
+# ---- 删除备份 ----
+delete_backup() {
+    local FILES
+    FILES=$(ls -1t "$BACKUP_DIR"/*.tar.gz 2>/dev/null)
+
+    if [ -z "$FILES" ]; then
+        echo -e "${YELLOW}无备份可删除${NC}"
+        return
+    fi
+
+    echo ""
+    echo -e "${CYAN}选择要删除的备份：${NC}"
+    local i=1
+    while IFS= read -r f; do
+        printf "  ${GREEN}[%2d]${NC} %s\n" "$i" "$(basename "$f")"
+        i=$((i+1))
+    done <<< "$FILES"
+    echo -e "  ${RED}[a]${NC} 删除全部"
+    echo -e "  ${RED}[0]${NC} 取消"
+    echo ""
+
+    printf "输入序号 (可多选，如 1 3 5): "
+    read -r SEL
+
+    [ "$SEL" = "0" ] && return
+    [ -z "$SEL" ] && return
+
+    if [ "$SEL" = "a" ] || [ "$SEL" = "A" ]; then
+        printf "${RED}确认删除全部备份？[y/N]${NC} "
+        read -r CF
+        if [ "$CF" = "y" ] || [ "$CF" = "Y" ]; then
+            rm -f "$BACKUP_DIR"/*.tar.gz 2>/dev/null
+            echo -e "${GREEN}✓ 已删除全部备份${NC}"
+        fi
+        return
+    fi
+
+    local total
+    total=$(echo "$FILES" | wc -l)
+    local deleted=0
+
+    for n in $SEL; do
+        if [[ "$n" =~ ^[0-9]+$ ]] && [ "$n" -ge 1 ] && [ "$n" -le "$total" ]; then
+            local FILE
+            FILE=$(echo "$FILES" | sed -n "${n}p")
+            if [ -f "$FILE" ]; then
+                rm -f "$FILE"
+                echo -e "${GREEN}✓ 已删除: $(basename "$FILE")${NC}"
+                deleted=$((deleted+1))
+            fi
+        fi
+    done
+
+    [ "$deleted" = "0" ] && echo -e "${YELLOW}未删除任何文件${NC}"
+}
+
+# ---- 清理旧备份 ----
+clean_old_backups() {
+    local FILES
+    FILES=$(ls -1t "$BACKUP_DIR"/*.tar.gz 2>/dev/null)
+
+    if [ -z "$FILES" ]; then
+        echo -e "${YELLOW}无备份${NC}"
+        return
+    fi
+
+    local total
+    total=$(echo "$FILES" | wc -l)
+
+    echo ""
+    echo -e "当前共 ${CYAN}${total}${NC} 个备份"
+    printf "保留最近几个？(默认 5): "
+    read -r KEEP
+    KEEP=${KEEP:-5}
+
+    if ! [[ "$KEEP" =~ ^[0-9]+$ ]] || [ "$KEEP" -lt 1 ]; then
+        echo -e "${RED}无效数字${NC}"
+        return
+    fi
+
+    if [ "$KEEP" -ge "$total" ]; then
+        echo -e "${YELLOW}无需清理${NC}"
+        return
+    fi
+
+    local to_delete=$((total - KEEP))
+    echo -e "${YELLOW}将删除 ${to_delete} 个较旧的备份${NC}"
+    printf "确认？[y/N] "
+    read -r CF
+    [ "$CF" != "y" ] && [ "$CF" != "Y" ] && return
+
+    echo "$FILES" | tail -n +$((KEEP+1)) | while IFS= read -r f; do
+        rm -f "$f"
+        echo -e "${GREEN}✓ 已删除: $(basename "$f")${NC}"
+    done
+}
+
+# ---- 导出到共享存储 ----
+export_backup() {
+    local SHARED="/sdcard/Download/ST_Backups"
+
+    if [ ! -d "/sdcard" ]; then
+        echo -e "${RED}未检测到共享存储权限${NC}"
+        echo -e "${YELLOW}请先运行 termux-setup-storage${NC}"
+        return
+    fi
+
+    local FILES
+    FILES=$(ls -1t "$BACKUP_DIR"/*.tar.gz 2>/dev/null)
+
+    if [ -z "$FILES" ]; then
+        echo -e "${YELLOW}无备份可导出${NC}"
+        return
+    fi
+
+    echo ""
+    echo -e "${CYAN}选择要导出的备份：${NC}"
+    local i=1
+    while IFS= read -r f; do
+        printf "  ${GREEN}[%2d]${NC} %s\n" "$i" "$(basename "$f")"
+        i=$((i+1))
+    done <<< "$FILES"
+    echo -e "  ${GREEN}[a]${NC} 导出全部"
+    echo -e "  ${RED}[0]${NC} 取消"
+    echo ""
+
+    printf "选择: "
+    read -r SEL
+
+    [ "$SEL" = "0" ] && return
+    [ -z "$SEL" ] && return
+
+    mkdir -p "$SHARED"
+
+    if [ "$SEL" = "a" ] || [ "$SEL" = "A" ]; then
+        cp "$BACKUP_DIR"/*.tar.gz "$SHARED/" 2>/dev/null
+        echo -e "${GREEN}✅ 已导出全部到：${NC}"
+        echo -e "${CYAN}   $SHARED${NC}"
+        return
+    fi
+
+    local total
+    total=$(echo "$FILES" | wc -l)
+    for n in $SEL; do
+        if [[ "$n" =~ ^[0-9]+$ ]] && [ "$n" -ge 1 ] && [ "$n" -le "$total" ]; then
+            local FILE
+            FILE=$(echo "$FILES" | sed -n "${n}p")
+            if [ -f "$FILE" ]; then
+                cp "$FILE" "$SHARED/" 2>/dev/null && \
+                    echo -e "${GREEN}✓ 已导出: $(basename "$FILE")${NC}"
+            fi
+        fi
+    done
+
+    echo ""
+    echo -e "${CYAN}📁 导出位置: $SHARED${NC}"
+}
+
+# ======================================
+# 恢复（增强版）
+# ======================================
 fn_restore() {
     if ! check_installed; then echo -e "${RED}未安装${NC}"; return; fi
-    FILES=$(ls "$BACKUP_DIR"/*.tar.gz 2>/dev/null || true)
-    if [ -z "$FILES" ]; then
-        echo -e "${RED}无备份文件，请将 .tar.gz 放到 SillyTavern_Backups/${NC}"
-        printf "按回车返回..."; read -r _; return
+
+    local FILES
+    FILES=$(ls -1t "$BACKUP_DIR"/*.tar.gz 2>/dev/null || true)
+
+    # 也支持从共享存储导入
+    local SHARED="/sdcard/Download/ST_Backups"
+    local SHARED_FILES=""
+    [ -d "$SHARED" ] && SHARED_FILES=$(ls -1t "$SHARED"/*.tar.gz 2>/dev/null)
+
+    if [ -z "$FILES" ] && [ -z "$SHARED_FILES" ]; then
+        echo -e "${RED}无备份文件${NC}"
+        echo -e "${YELLOW}请将 .tar.gz 放到 $BACKUP_DIR${NC}"
+        echo -e "${YELLOW}或 $SHARED${NC}"
+        printf "按回车返回..."; read -r _
+        return
     fi
-    echo "可用备份:"
-    i=1; for f in $FILES; do echo "  [$i] $(basename "$f")"; i=$((i+1)); done
-    echo "  [0] 取消"
-    printf "选择: "; read -r N
-    { [ "$N" = "0" ] || [ -z "$N" ]; } && return
-    FILE=$(echo "$FILES" | sed -n "${N}p")
-    [ ! -f "$FILE" ] && { echo "无效"; return; }
-    printf "确认覆盖当前数据？[y/N] "; read -r CF
-    [ "$CF" != "y" ] && [ "$CF" != "Y" ] && return
+
+    echo ""
+    echo -e "${CYAN}${BOLD}📥 恢复备份${NC}"
+    echo ""
+
+    local ALL_FILES=""
+    local i=1
+
+    if [ -n "$FILES" ]; then
+        echo -e "  ${BOLD}本地备份 ($BACKUP_DIR):${NC}"
+        while IFS= read -r f; do
+            local size
+            size=$(du -h "$f" 2>/dev/null | cut -f1)
+            printf "  ${GREEN}[%2d]${NC} %-40s ${CYAN}%6s${NC}\n" \
+                "$i" "$(basename "$f")" "$size"
+            ALL_FILES="${ALL_FILES}${f}\n"
+            i=$((i+1))
+        done <<< "$FILES"
+    fi
+
+    if [ -n "$SHARED_FILES" ]; then
+        echo ""
+        echo -e "  ${BOLD}共享存储 ($SHARED):${NC}"
+        while IFS= read -r f; do
+            local size
+            size=$(du -h "$f" 2>/dev/null | cut -f1)
+            printf "  ${GREEN}[%2d]${NC} %-40s ${CYAN}%6s${NC}\n" \
+                "$i" "$(basename "$f")" "$size"
+            ALL_FILES="${ALL_FILES}${f}\n"
+            i=$((i+1))
+        done <<< "$SHARED_FILES"
+    fi
+
+    echo ""
+    echo -e "  ${RED}[0]${NC} 取消"
+    echo ""
+
+    printf "选择要恢复的备份: "
+    read -r N
+
+    [ "$N" = "0" ] && return
+    [ -z "$N" ] && return
+
+    if ! [[ "$N" =~ ^[0-9]+$ ]]; then
+        echo -e "${RED}无效输入${NC}"
+        return
+    fi
+
+    local FILE
+    FILE=$(printf "%b" "$ALL_FILES" | sed -n "${N}p")
+
+    if [ ! -f "$FILE" ]; then
+        echo -e "${RED}无效选择${NC}"
+        return
+    fi
+
+    echo ""
+    echo -e "${CYAN}已选择: $(basename "$FILE")${NC}"
+
+    # 查看备份内容
+    echo -e "${CYAN}📋 备份内容:${NC}"
+    tar tzf "$FILE" 2>/dev/null | head -n 15 | sed 's/^/    /'
+    local total_items
+    total_items=$(tar tzf "$FILE" 2>/dev/null | wc -l)
+    [ "$total_items" -gt 15 ] && echo -e "    ${YELLOW}... (共 ${total_items} 项)${NC}"
+    echo ""
+
+    echo -e "${BOLD}恢复方式：${NC}"
+    echo -e "  ${GREEN}[1]${NC} 覆盖恢复 (先自动备份当前数据)"
+    echo -e "  ${GREEN}[2]${NC} 覆盖恢复 (不备份，直接覆盖)"
+    echo -e "  ${RED}[0]${NC} 取消"
+    echo ""
+    printf "选择: "
+    read -r RMODE
+
+    case "$RMODE" in
+        1)
+            echo -e "${CYAN}正在自动备份当前数据...${NC}"
+            local AUTO_NAME="ST_auto_before_restore_$(date +%Y%m%d_%H%M%S).tar.gz"
+            cd "$INSTALL_DIR" || return
+            if tar czf "$BACKUP_DIR/$AUTO_NAME" data/ config.yaml 2>/dev/null; then
+                echo -e "${GREEN}✓ 已自动备份: $AUTO_NAME${NC}"
+            else
+                echo -e "${YELLOW}⚠️ 自动备份失败，继续恢复...${NC}"
+            fi
+            ;;
+        2)
+            echo -e "${YELLOW}⚠️ 将直接覆盖，当前数据不可恢复${NC}"
+            printf "确认？[y/N] "
+            read -r CF
+            [ "$CF" != "y" ] && [ "$CF" != "Y" ] && return
+            ;;
+        0|*) return ;;
+    esac
+
+    echo ""
+    echo -e "${CYAN}🔄 正在停止酒馆...${NC}"
     fn_stop 2>/dev/null || true
-    cd "$INSTALL_DIR"; rm -rf data; tar xzf "$FILE"
-    echo -e "${GREEN}✓ 已恢复${NC}"
+    sleep 1
+
+    cd "$INSTALL_DIR" || return
+
+    echo -e "${CYAN}📦 正在恢复...${NC}"
+
+    # 判断备份内容，决定清理哪些目录
+    local HAS_DATA=0 HAS_CONFIG=0 HAS_EXT=0
+    tar tzf "$FILE" 2>/dev/null | grep -q "^data/" && HAS_DATA=1
+    tar tzf "$FILE" 2>/dev/null | grep -q "^config.yaml" && HAS_CONFIG=1
+    tar tzf "$FILE" 2>/dev/null | grep -q "^public/scripts/extensions" && HAS_EXT=1
+
+    [ "$HAS_DATA" = "1" ] && rm -rf data
+    [ "$HAS_CONFIG" = "1" ] && rm -f config.yaml
+    [ "$HAS_EXT" = "1" ] && rm -rf public/scripts/extensions/third-party
+
+    if tar xzf "$FILE" 2>/dev/null; then
+        echo -e "${GREEN}✅ 恢复完成${NC}"
+
+        # 恢复后清理
+        echo -e "${CYAN}🧹 清理缓存...${NC}"
+        rm -rf data/default-user/backups/*.jsonl 2>/dev/null
+        rm -rf node_modules/.cache 2>/dev/null
+
+        echo ""
+        printf "是否立即启动酒馆？[Y/n] "
+        read -r START_NOW
+        if [ "$START_NOW" != "n" ] && [ "$START_NOW" != "N" ]; then
+            fn_start
+        fi
+    else
+        echo -e "${RED}✗ 恢复失败${NC}"
+        echo -e "${YELLOW}💡 可从自动备份恢复${NC}"
+    fi
+
+    printf "按回车返回..."
+    read -r _
 }
 
 # ---- 系统级清除 ----
@@ -1465,7 +1841,14 @@ if ! check_installed; then
     show_menu
 else
     setup_auto_menu
-    auto_disable_lan_on_start
+
+    # 每次打开脚本时，默认关闭局域网
+    rm -f "$LAN_FLAG" 2>/dev/null
+    if [ -f "$INSTALL_DIR/config.yaml" ]; then
+        sed -i 's/^listen:.*/listen: false/' "$INSTALL_DIR/config.yaml" 2>/dev/null
+        sed -i 's/^port:.*/port: 8000/' "$INSTALL_DIR/config.yaml" 2>/dev/null
+    fi
+
     header
     show_menu
 fi
