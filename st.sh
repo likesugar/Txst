@@ -195,9 +195,9 @@ status_text() {
         if [ -f "$LAN_FLAG" ]; then
             local IP=$(get_lan_ip)
             if [ -n "$IP" ]; then
-echo -e "${GREEN}🟢 运行中 → http://${IP}:${PORT} (局域网)${NC}"
+echo -e "${GREEN}🟢 运行中 → http://${IP}:${PORT} ${NC}"
             else
-echo -e "${GREEN}🟢 运行中 → 端口 ${PORT} (局域网模式)${NC}"
+echo -e "${GREEN}🟢 运行中 → 端口 ${PORT} ${NC}"
             fi
         else
 echo -e "${GREEN}🟢 运行中 → http://127.0.0.1:${PORT}${NC}"
@@ -211,7 +211,7 @@ header() {
     clear
     echo -e "${CYAN}${BOLD}"
     echo "  ╔══════════════════════════════════════╗"
-    echo "  ║    淡蓝酒馆 · Termux 控制面板      ║"
+    echo "  ║      淡蓝酒馆 · Termux 控制面板      ║"
     echo "  ╚══════════════════════════════════════╝"
     printf '\033[0m'
     status_text
@@ -1142,9 +1142,9 @@ fn_start() {
         if [ -f "$LAN_FLAG" ]; then
             local IP=$(get_lan_ip)
             if [ -n "$IP" ]; then
-                echo -e "${GREEN}✓ 已启动 → http://${IP}:${PORT} (局域网)${NC}"
+                echo -e "${GREEN}✓ 已启动 → http://${IP}:${PORT} ${NC}"
             else
-                echo -e "${GREEN}✓ 已启动 → 端口 ${PORT} (局域网模式)${NC}"
+                echo -e "${GREEN}✓ 已启动 → 端口 ${PORT} ${NC}"
             fi
         else
             echo -e "${GREEN}✓ 已启动 → http://127.0.0.1:${PORT}${NC}"
