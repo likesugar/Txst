@@ -1,4 +1,4 @@
-# 自用· Termux 禁止使用
+#     新自用· Termux 禁止使用
 国内源加速，无需梯子。
 
 ## 一条命令安装
@@ -6,11 +6,11 @@
 打开 Termux，粘贴回车：
 
 ```bash
-curl -O https://raw.githubusercontent.com/likesugar/termux-sillytavern/main/st.sh && bash st.sh
+curl -O https://raw.githubusercontent.com/likesugar/Txst/main/st.sh && bash st.sh
 ```
 国内代理
 ```bash
-curl -O https://gh-proxy.com/https://raw.githubusercontent.com/likesugar/termux-sillytavern/main/st.sh && bash st.sh
+curl -O https://gh-proxy.com/https://raw.githubusercontent.com/likesugar/Txst/main/st.sh && bash st.sh
 ```
 ## 功能
 
