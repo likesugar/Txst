@@ -67,7 +67,24 @@ download_foxium() {
     local dest="${1:-$HOME/ffss.sh}"
     for URL in "${FOXIUM_URLS[@]}"; do
         echo -e "  → 尝试: $(echo "$URL" | cut -d'/' -f3)"
-        if curl -L "$URL" -o "$dest" --connect-timeout 10 --max-time 30 --retry 1 2>/dev/null && [ -s "$dest" ]; then
+        if node -e '
+const https = require("https");
+const fs = require("fs");
+const url = process.argv[1];
+const dest = process.argv[2];
+function get(u) {
+  https.get(u, res => {
+    if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+      return get(res.headers.location);
+    }
+    if (res.statusCode !== 200) process.exit(1);
+    const f = fs.createWriteStream(dest);
+    res.pipe(f);
+    f.on("finish", () => { f.close(); process.exit(0); });
+  }).on("error", () => process.exit(1));
+}
+get(url);
+' "$URL" "$dest" && [ -s "$dest" ]; then
             chmod +x "$dest"
             return 0
         fi
@@ -75,7 +92,6 @@ download_foxium() {
     done
     return 1
 }
-
 # ---- git / node / npm 瘦身 ----
 slim_git_node() {
     if command_exists git; then
