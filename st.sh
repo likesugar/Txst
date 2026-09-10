@@ -1,6 +1,6 @@
 #!/data/data/com.termux/files/usr/bin/bash
 #==========================================================================
-# 🌀 淡蓝酒馆 · Termux 一键部署与管理 v2.7
+#  淡蓝酒馆 · Termux 一键部署与管理 v2.7
 # 全国内源加速 · 无需梯子 · 打开 Termux 自动弹出菜单
 # 功能：局域网访问 + 密码验证 + 随机端口 + 推荐配置 + 扩展管理 + 清理
 #==========================================================================
@@ -195,15 +195,15 @@ status_text() {
         if [ -f "$LAN_FLAG" ]; then
             local IP=$(get_lan_ip)
             if [ -n "$IP" ]; then
-                echo -e "${GREEN}🟢 运行中 → http://${IP}:${PORT} (局域网)${NC}"
+echo -e "${GREEN}🟢 运行中 → http://${IP}:${PORT} (局域网)${NC}"
             else
-                echo -e "${GREEN}🟢 运行中 → 端口 ${PORT} (局域网模式)${NC}"
+echo -e "${GREEN}🟢 运行中 → 端口 ${PORT} (局域网模式)${NC}"
             fi
         else
-            echo -e "${GREEN}🟢 运行中 → http://127.0.0.1:${PORT}${NC}"
+echo -e "${GREEN}🟢 运行中 → http://127.0.0.1:${PORT}${NC}"
         fi
     else
-        echo -e "${YELLOW}🔴 未运行${NC}"
+echo -e "${YELLOW}🔴 未运行${NC}"
     fi
 }
 
@@ -211,12 +211,10 @@ header() {
     clear
     echo -e "${CYAN}${BOLD}"
     echo "  ╔══════════════════════════════════════╗"
-    echo "  ║   🌀 淡蓝酒馆 · Termux 控制面板      ║"
+    echo "  ║    淡蓝酒馆 · Termux 控制面板      ║"
     echo "  ╚══════════════════════════════════════╝"
-    echo -e "${NC}"
-    echo ""
+    printf '\033[0m'
     status_text
-    echo ""
 }
 
 show_menu() {
@@ -225,8 +223,8 @@ show_menu() {
     echo -e "  ${GREEN}[4]${NC}⭐️扩展管理⭐️${GREEN}[5]${NC}✨️推荐配置✨️"
     echo ""
     echo -e "  ${BOLD}═══ 维护 ═══${NC}"
-    echo -e "  ${BLUE}[6]${NC} 更新  ${BLUE}[7]${NC} 日志  ${BLUE}[8]${NC} 版本回退/切换"
-    echo -e "  ${BLUE}[9]${NC} 清理残余文件  ${BLUE}[10]${NC} Foxium工具箱"
+    echo -e "  ${BLUE}[6]${NC} 清理残余文件  ${BLUE}[7]${NC} Foxium工具箱"
+    echo -e "  ${BLUE}[8]${NC} 更新  ${BLUE}[9]${NC} 日志  ${BLUE}[10]${NC} 版本回退/切换"
     echo ""
     echo -e "  ${BOLD}═══ 数据 ═══${NC}"
     echo -e "  ${YELLOW}[11]${NC} 备份  ${YELLOW}[12]${NC} 恢复  ${YELLOW}[13]${NC} 重装依赖"
@@ -293,7 +291,7 @@ do_install() {
     fi
 
     clear
-    echo "  🌀 淡蓝酒馆 · 首次安装"
+    echo "   淡蓝酒馆 · 首次安装"
     echo "  ========================"
     echo ""
 
@@ -391,7 +389,7 @@ https://github.com/SillyTavern/SillyTavern
 
     echo ""
     echo "  ╔══════════════════════════════════════╗"
-    echo "  ║   🌀 安装完成！                     ║"
+    echo "  ║    安装完成！                     ║"
     echo "  ╚══════════════════════════════════════╝"
     echo ""
     echo "  💡 现在输入 1 启动酒馆"
@@ -858,7 +856,7 @@ fn_clean() {
 }
 
 # ======================================
-# Foxium 工具箱（增强版 - 带版本检查）
+# Foxium 工具箱（简化版 - 不检查更新）
 # ======================================
 fn_foxium() {
     echo -e "${CYAN}${BOLD}═══════ 🦊 Foxium 工具箱 ═══════${NC}"
@@ -868,47 +866,6 @@ fn_foxium() {
 
     if [ -f "$HOME/ffss.sh" ] && [ -s "$HOME/ffss.sh" ]; then
         echo -e "${GREEN}✅ 已安装 Foxium 工具箱${NC}"
-        echo -e "${CYAN}正在检查更新...${NC}"
-        local REMOTE_VERSION=""
-        local TEMP_FILE=$(mktemp)
-
-        for URL in "https://raw.githubusercontent.com/likesugar/Txst/main/version.txt" \
-                    "https://gh-proxy.com/https://raw.githubusercontent.com/likesugar/Txst/main/version.txt"; do
-            if curl -L "$URL" -o "$TEMP_FILE" --connect-timeout 5 2>/dev/null && [ -s "$TEMP_FILE" ]; then
-                REMOTE_VERSION=$(cat "$TEMP_FILE" | head -1)
-                break
-            fi
-        done
-        rm -f "$TEMP_FILE"
-
-        if [ -n "$REMOTE_VERSION" ]; then
-            local LOCAL_VERSION=$(grep "^# Version:" "$HOME/ffss.sh" 2>/dev/null | head -1 | cut -d':' -f2 | xargs)
-            if [ -n "$LOCAL_VERSION" ] && [ "$LOCAL_VERSION" != "$REMOTE_VERSION" ]; then
-                echo -e "${YELLOW}⚠️ 发现新版本: $REMOTE_VERSION (当前: $LOCAL_VERSION)${NC}"
-                printf "是否更新？[y/N]: "
-                read -r UPDATE_FOX
-                if [ "$UPDATE_FOX" = "y" ] || [ "$UPDATE_FOX" = "Y" ]; then
-                    echo -e "${CYAN}正在更新...${NC}"
-                    rm -f "$HOME/ffss.sh"
-                    local FOXIUM_URLS=(
-                        "https://raw.githubusercontent.com/likesugar/Txst/main/ffss.sh"
-                        "https://gh-proxy.com/https://raw.githubusercontent.com/likesugar/Txst/main/ffss.sh"
-                        "https://ghproxy.net/https://raw.githubusercontent.com/likesugar/Txst/main/ffss.sh"
-                        "https://ghfast.top/https://raw.githubusercontent.com/likesugar/Txst/main/ffss.sh"
-                    )
-                    for URL in "${FOXIUM_URLS[@]}"; do
-                        if curl -L "$URL" -o "$HOME/ffss.sh" --connect-timeout 10 2>/dev/null && [ -s "$HOME/ffss.sh" ]; then
-                            chmod +x "$HOME/ffss.sh"
-                            echo -e "${GREEN}✅ 更新完成${NC}"
-                            break
-                        fi
-                    done
-                fi
-            else
-                echo -e "${GREEN}✓ 已是最新版本${NC}"
-            fi
-        fi
-
         echo ""
         echo -e "${CYAN}正在启动 Foxium 工具箱...${NC}"
         echo ""
@@ -1493,7 +1450,7 @@ setup_auto_menu() {
 
     if ! grep -q "st.sh" "$HOME/.bashrc" 2>/dev/null; then
         echo "" >> "$HOME/.bashrc"
-        echo '# 🌀 淡蓝酒馆自动菜单' >> "$HOME/.bashrc"
+        echo '# 淡蓝酒馆自动菜单' >> "$HOME/.bashrc"
         echo 'if [ -f "$HOME/st.sh" ] && [[ $- == *i* ]]; then bash "$HOME/st.sh"; fi' >> "$HOME/.bashrc"
     fi
 }
@@ -1523,11 +1480,11 @@ while true; do
         3) fn_restart; header; show_menu ;;
         4) fn_install_extension; header; show_menu ;;
         5) fn_config; header; show_menu ;;
-        6) fn_update;  header; show_menu ;;
-        7) fn_logs;    header; show_menu ;;
-        8) fn_rollback; header; show_menu ;;
-        9) fn_clean;   header; show_menu ;;
-        10) fn_foxium; header; show_menu ;;
+        6) fn_clean;   header; show_menu ;;
+        7) fn_foxium; header; show_menu ;;
+        8) fn_update;  header; show_menu ;;
+        9) fn_logs;    header; show_menu ;;
+        10) fn_rollback; header; show_menu ;;
         11) fn_backup;  header; show_menu ;;
         12) fn_restore; header; show_menu ;;
         13) fn_reinstall_deps; header; show_menu ;;
