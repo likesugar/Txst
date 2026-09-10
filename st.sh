@@ -367,9 +367,9 @@ https://github.com/SillyTavern/SillyTavern
     echo -e "${CYAN}🦊 正在预安装 Foxium 工具箱...${NC}"
 
     local FOXIUM_URLS=(
-        "https://gh-proxy.com/https://raw.githubusercontent.com/likesugar/termux-sillytavern/main/ffss.sh"
-        "https://mirror.ghproxy.com/https://raw.githubusercontent.com/likesugar/termux-sillytavern/main/ffss.sh"
-        "https://raw.githubusercontent.com/likesugar/termux-sillytavern/main/ffss.sh"
+        "https://gh-proxy.com/https://raw.githubusercontent.com/likesugar/Txst/main/ffss.sh"
+        "https://mirror.ghproxy.com/https://raw.githubusercontent.com/likesugar/Txst/main/ffss.sh"
+        "https://raw.githubusercontent.com/likesugar/Txst/main/ffss.sh"
     )
     local FOX_OK=0
     for URL in "${FOXIUM_URLS[@]}"; do
@@ -872,8 +872,8 @@ fn_foxium() {
         local REMOTE_VERSION=""
         local TEMP_FILE=$(mktemp)
 
-        for URL in "https://raw.githubusercontent.com/likesugar/termux-sillytavern/main/version.txt" \
-                    "https://gh-proxy.com/https://raw.githubusercontent.com/likesugar/termux-sillytavern/main/version.txt"; do
+        for URL in "https://raw.githubusercontent.com/likesugar/Txst/main/version.txt" \
+                    "https://gh-proxy.com/https://raw.githubusercontent.com/likesugar/Txst/main/version.txt"; do
             if curl -L "$URL" -o "$TEMP_FILE" --connect-timeout 5 2>/dev/null && [ -s "$TEMP_FILE" ]; then
                 REMOTE_VERSION=$(cat "$TEMP_FILE" | head -1)
                 break
@@ -891,10 +891,10 @@ fn_foxium() {
                     echo -e "${CYAN}正在更新...${NC}"
                     rm -f "$HOME/ffss.sh"
                     local FOXIUM_URLS=(
-                        "https://raw.githubusercontent.com/likesugar/termux-sillytavern/main/ffss.sh"
-                        "https://gh-proxy.com/https://raw.githubusercontent.com/likesugar/termux-sillytavern/main/ffss.sh"
-                        "https://ghproxy.net/https://raw.githubusercontent.com/likesugar/termux-sillytavern/main/ffss.sh"
-                        "https://ghfast.top/https://raw.githubusercontent.com/likesugar/termux-sillytavern/main/ffss.sh"
+                        "https://raw.githubusercontent.com/likesugar/Txst/main/ffss.sh"
+                        "https://gh-proxy.com/https://raw.githubusercontent.com/likesugar/Txst/main/ffss.sh"
+                        "https://ghproxy.net/https://raw.githubusercontent.com/likesugar/Txst/main/ffss.sh"
+                        "https://ghfast.top/https://raw.githubusercontent.com/likesugar/Txst/main/ffss.sh"
                     )
                     for URL in "${FOXIUM_URLS[@]}"; do
                         if curl -L "$URL" -o "$HOME/ffss.sh" --connect-timeout 10 2>/dev/null && [ -s "$HOME/ffss.sh" ]; then
@@ -919,10 +919,10 @@ fn_foxium() {
     echo -e "${CYAN}正在下载 Foxium 工具箱...${NC}"
 
     local FOXIUM_URLS=(
-        "https://raw.githubusercontent.com/likesugar/termux-sillytavern/main/ffss.sh"
-        "https://gh-proxy.com/https://raw.githubusercontent.com/likesugar/termux-sillytavern/main/ffss.sh"
-        "https://ghproxy.net/https://raw.githubusercontent.com/likesugar/termux-sillytavern/main/ffss.sh"
-        "https://ghfast.top/https://raw.githubusercontent.com/likesugar/termux-sillytavern/main/ffss.sh"
+        "https://raw.githubusercontent.com/likesugar/Txst/main/ffss.sh"
+        "https://gh-proxy.com/https://raw.githubusercontent.com/likesugar/Txst/main/ffss.sh"
+        "https://ghproxy.net/https://raw.githubusercontent.com/likesugar/Txst/main/ffss.sh"
+        "https://ghfast.top/https://raw.githubusercontent.com/likesugar/Txst/main/ffss.sh"
     )
 
     local OK=0
@@ -940,7 +940,7 @@ fn_foxium() {
     if [ "$OK" != "1" ]; then
         echo -e "${RED}❌ 下载失败，请检查网络连接${NC}"
         echo -e "${YELLOW}💡 可尝试手动执行:${NC}"
-        echo -e "  ${CYAN}curl -L https://raw.githubusercontent.com/likesugar/termux-sillytavern/main/ffss.sh -o ~/ffss.sh && bash ~/ffss.sh${NC}"
+        echo -e "  ${CYAN}curl -L https://raw.githubusercontent.com/likesugar/Txst/main/ffss.sh -o ~/ffss.sh && bash ~/ffss.sh${NC}"
         printf "\n按回车返回..."
         read -r _
         return
