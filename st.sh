@@ -141,6 +141,20 @@ add_whitelist_entry() {
 }
 
 # ======================================
+# 统一：读取 whitelistMode 状态
+# 返回: true / false / 未设置
+# ======================================
+get_whitelist_mode() {
+    local v
+    v=$(read_config_key "whitelistMode")
+    if [ -z "$v" ]; then
+        echo "未设置"
+    else
+        echo "$v"
+    fi
+}
+
+# ======================================
 # 统一：切换 whitelistMode
 # 用法: toggle_whitelist_mode
 # ======================================
@@ -170,11 +184,10 @@ toggle_whitelist_mode() {
             inblk && /^[[:space:]]*-/ {print "    " $0}
         ' "$cfg"
     else
-        echo -e "${YELLOW}✓ 白名单模式已关闭${NC}"
+        echo -e "${GREEN}✓ 白名单模式已关闭${NC}"
         echo -e "${RED}  ⚠️ 任何 IP 都能访问，请务必开启密码验证！${NC}"
         if [ "$(read_config_key basicAuthMode)" != "true" ]; then
-            echo -e "${RED}  ⚠️ 当前密码验证未开启${NC}"
-            echo -e "${RED}  ⚠️ listen: true 时酒馆会因不安全而拒绝启动！${NC}"
+            echo -e "${RED}  ⚠️ 当前密码验证未开启，强烈建议按 [1] 设置${NC}"
         fi
     fi
 }
@@ -506,7 +519,6 @@ fn_start() {
     cd "$INSTALL_DIR"
     nohup bash start.sh > "$INSTALL_DIR/nohup.out" 2>&1 &
 
-    # 轮询等待，最多 30 秒
     local i=0
     printf "  等待服务就绪"
     while [ $i -lt 30 ]; do
@@ -539,222 +551,6 @@ fn_restart() {
     fn_stop
     sleep 1
     fn_start
-}
-
-# ======================================
-# 局域网功能（只加 192.168.0.0/16）
-# ======================================
-fn_lan_on() {
-    touch "$LAN_FLAG"
-
-    if [ -f "$INSTALL_DIR/config.yaml" ]; then
-        set_config_key "listen" "true"
-
-        local RANDOM_PORT=$(random_port)
-        set_config_key "port" "${RANDOM_PORT}"
-
-        # 只追加 192.168.0.0/16，不覆盖其他白名单条目
-        add_whitelist_entry "192.168.0.0/16"
-    fi
-
-    local IP=$(get_lan_ip)
-    local PORT=$(get_current_port)
-
-    echo -e "${GREEN}✓ 局域网访问已开启${NC}"
-    echo -e "${CYAN}🌐 访问地址: http://${IP:-<IP>}:${PORT}${NC}"
-    echo -e "${CYAN}  随机端口: ${PORT} (避免冲突)${NC}"
-
-    local PASS_STATUS=$(get_password_status)
-    if [[ "$PASS_STATUS" == "开启" ]]; then
-        echo -e "${YELLOW}⚠️ 密码验证未开启，局域网内任何人都能访问${NC}"
-        echo -e "${YELLOW}  建议按 m 设置密码验证${NC}"
-    fi
-
-    echo -e "${CYAN}🔄 正在自动重启酒馆以应用配置...${NC}"
-    fn_stop
-    sleep 2
-    fn_start
-    echo -e "${GREEN}✅ 配置已应用并重启完成${NC}"
-}
-
-fn_lan_off() {
-    rm -f "$LAN_FLAG"
-
-    if [ -f "$INSTALL_DIR/config.yaml" ]; then
-        set_config_key "listen" "false"
-        set_config_key "port" "8000"
-    fi
-
-    echo -e "${GREEN}✓ 局域网访问已关闭${NC}"
-    echo -e "${YELLOW}  端口恢复: 8000 (仅本机)${NC}"
-
-    if is_running; then
-        echo -e "${YELLOW}  正在自动重启酒馆以应用更改...${NC}"
-        fn_stop
-        sleep 1
-        fn_start
-    fi
-}
-
-# ---- 设置密码验证 ----
-fn_set_password() {
-    if ! check_installed; then
-        echo -e "${RED}未安装${NC}"
-        return
-    fi
-    if [ ! -f "$INSTALL_DIR/config.yaml" ]; then
-        echo -e "${RED}config.yaml 不存在${NC}"
-        return
-    fi
-
-    echo ""
-    echo -e "${CYAN}${BOLD}═══════ 密码验证设置 ═══════${NC}"
-    echo ""
-
-    if [ -f "$LAN_FLAG" ]; then
-        local IP=$(get_lan_ip)
-        local PORT=$(get_current_port)
-        echo -e "${CYAN}🌐 局域网状态: 已开启${NC}"
-        echo -e "${CYAN}   访问地址: http://${IP:-<IP>}:${PORT}${NC}"
-        echo -e "${CYAN}   当前端口: ${PORT}${NC}"
-    else
-        echo -e "${YELLOW}🌐 局域网状态: 已关闭 (仅本机访问)${NC}"
-    fi
-    echo ""
-
-    local CURRENT_AUTH=$(read_config_key "basicAuthMode")
-    local CURRENT_USER=$(read_config_key "username" 1)
-    local CURRENT_PASS=$(read_config_key "password" 1)
-    local CURRENT_WL=$(read_config_key "whitelistMode")
-
-    echo -e "${YELLOW}📋 当前安全状态：${NC}"
-
-    if [ "$CURRENT_AUTH" = "true" ] && [ -n "$CURRENT_USER" ] && [ "$CURRENT_USER" != '""' ]; then
-        echo -e "  ${GREEN}密码验证：✅ 已开启${NC}"
-        echo -e "    ${CYAN}账号：${CURRENT_USER}${NC}"
-        if [ -n "$CURRENT_PASS" ] && [ "$CURRENT_PASS" != '""' ]; then
-            echo -e "    ${CYAN}密码：${CURRENT_PASS}${NC}"
-        else
-            echo -e "    ${YELLOW}密码：未设置${NC}"
-        fi
-    else
-        echo -e "  ${RED}密码验证：❌ 未开启${NC}"
-    fi
-
-    if [ "$CURRENT_WL" = "true" ]; then
-        echo -e "  ${GREEN}白名单模式：✅ 已开启${NC}"
-    elif [ "$CURRENT_WL" = "false" ]; then
-        echo -e "  ${RED}白名单模式：❌ 已关闭${NC}"
-    else
-        echo -e "  ${YELLOW}白名单模式：未设置${NC}"
-    fi
-
-    echo ""
-    if [ "$CURRENT_AUTH" = "true" ] && [ "$CURRENT_WL" = "true" ]; then
-        echo -e "  ${GREEN}🛡️ 当前双重防护已开启（密码 + 白名单）${NC}"
-    elif [ "$CURRENT_AUTH" = "true" ] && [ "$CURRENT_WL" != "true" ]; then
-        echo -e "  ${YELLOW}💡 已开密码验证，但白名单未开启${NC}"
-        echo -e "  ${YELLOW}   局域网内任意设备都能连到登录页，建议同时开启白名单${NC}"
-    elif [ "$CURRENT_AUTH" != "true" ] && [ "$CURRENT_WL" = "true" ]; then
-        echo -e "  ${YELLOW}💡 已开白名单，但密码验证未开启${NC}"
-        echo -e "  ${YELLOW}   同网段设备可无密码访问，建议设置账号密码${NC}"
-    else
-        echo -e "  ${RED}⚠️ 密码验证与白名单均未开启${NC}"
-        echo -e "  ${RED}   如果同时 listen: true，酒馆会因不安全而拒绝启动！${NC}"
-        echo -e "  ${YELLOW}   请至少开启一项：密码验证 或 白名单模式${NC}"
-    fi
-    echo ""
-
-    echo -e "  ${GREEN}[1]${NC} 设置/修改账号密码"
-    echo -e "  ${YELLOW}[2]${NC} 关闭密码认证"
-    echo -e "  ${GREEN}[3]${NC} 重新生成随机端口"
-    echo -e "  ${CYAN}[4]${NC} 切换白名单模式 (当前: ${CURRENT_WL:-未设置})"
-    echo -e "  ${RED}[0]${NC} 返回"
-    echo ""
-
-    printf "请选择: "
-    read -r PASS_CHOICE
-
-    case "$PASS_CHOICE" in
-        1)
-            echo ""
-            printf "请输入账号 (不能为空): "
-            read -r NEW_USER
-            if [ -z "$NEW_USER" ]; then
-                echo -e "${RED}账号不能为空，取消设置${NC}"
-                printf "按回车返回..."
-                read -r _
-                return
-            fi
-
-            printf "请输入密码 (不能为空): "
-            read -r NEW_PASSWORD
-            if [ -z "$NEW_PASSWORD" ]; then
-                echo -e "${RED}密码不能为空，取消设置${NC}"
-                printf "按回车返回..."
-                read -r _
-                return
-            fi
-
-            cp "$INSTALL_DIR/config.yaml" "$INSTALL_DIR/config.yaml.bak"
-
-            set_config_key "basicAuthMode" "true"
-            set_config_key "username" "\"${NEW_USER}\"" 1
-            set_config_key "password" "\"${NEW_PASSWORD}\"" 1
-
-            echo ""
-            echo -e "${GREEN}✓ 密码验证已设置${NC}"
-            echo -e "  ${CYAN}账号: ${NEW_USER}${NC}"
-
-            if is_running; then
-                echo -e "${YELLOW}  ⚠️ 需要重启酒馆才能生效${NC}"
-            fi
-            ;;
-        2)
-            echo ""
-            if [ "$(read_config_key basicAuthMode)" = "true" ]; then
-                set_config_key "basicAuthMode" "false"
-                echo -e "${GREEN}✓ 密码认证已关闭${NC}"
-            else
-                echo -e "${YELLOW}密码认证未开启${NC}"
-            fi
-            if is_running; then
-                echo -e "${YELLOW}  ⚠️ 需要重启酒馆才能生效${NC}"
-            fi
-            ;;
-        3)
-            echo ""
-            if [ ! -f "$LAN_FLAG" ]; then
-                echo -e "${YELLOW}⚠️ 局域网未开启，无需随机端口${NC}"
-                printf "按回车返回..."
-                read -r _
-                return
-            fi
-
-            local NEW_PORT=$(random_port)
-            set_config_key "port" "${NEW_PORT}"
-
-            echo -e "${GREEN}✓ 端口已更换为: ${NEW_PORT}${NC}"
-
-            if is_running; then
-                echo -e "${YELLOW}  ⚠️ 需要重启酒馆才能生效${NC}"
-            fi
-            ;;
-        4)
-            echo ""
-            toggle_whitelist_mode
-            echo ""
-            if is_running; then
-                echo -e "${YELLOW}  ⚠️ 需要重启酒馆才能生效${NC}"
-            fi
-            ;;
-        0) return ;;
-        *) echo -e "${RED}无效选项${NC}" ;;
-    esac
-
-    echo ""
-    printf "按回车返回..."
-    read -r _
 }
 
 # ======================================
@@ -884,28 +680,15 @@ https://github.com/SillyTavern/SillyTavern
     echo "  💡 输入 7 使用 Foxium 工具箱"
     echo ""
 
-    if [ "$FOX_OK" = "1" ]; then
-        echo -e "${CYAN}🦊 Foxium 工具箱已准备就绪！${NC}"
-        echo -e "${YELLOW}是否现在启动 Foxium 工具箱？${NC}"
-        echo -e "  ${GREEN}[y]${NC} 立即启动"
-        echo -e "  ${RED}[n]${NC} 稍后手动启动（菜单选 7）"
-        printf "选择 [y/N]: "
-        read -r RUN_FOX
-
-        if [ "$RUN_FOX" = "y" ] || [ "$RUN_FOX" = "Y" ]; then
-            echo ""
-            echo -e "${CYAN}正在启动 Foxium 工具箱...${NC}"
-            echo ""
-            sleep 1
-            bash "$HOME/ffss.sh"
-        else
-            echo -e "${GREEN}✓ 已跳过，可在菜单中按 [7] 启动${NC}"
-            sleep 1
-        fi
-    else
-        echo -e "${YELLOW}💡 Foxium 工具箱未预安装成功，可在菜单中按 [7] 重新下载${NC}"
-        sleep 2
-    fi
+if [ "$FOX_OK" = "1" ]; then
+    echo -e "${CYAN}🦊 Foxium 工具箱已准备就绪，正在启动...${NC}"
+    echo ""
+    sleep 1
+    bash "$HOME/ffss.sh"
+else
+    echo -e "${YELLOW}💡 Foxium 工具箱未预安装成功，可在菜单中按 [7] 重新下载${NC}"
+    sleep 2
+fi
 }
 
 # ======================================
@@ -1093,7 +876,7 @@ install_one() {
 }
 
 # ======================================
-# 推荐配置（增量合并，不整体覆盖）
+# 推荐配置（改为增量合并，不再整体覆盖）
 # ======================================
 fn_config() {
     if ! check_installed; then
@@ -1377,6 +1160,210 @@ fn_foxium() {
         printf "\n按回车返回..."
         read -r _
     fi
+}
+
+# ======================================
+# 局域网功能（改为增量修改 config）
+# ======================================
+fn_lan_on() {
+    touch "$LAN_FLAG"
+
+    if [ -f "$INSTALL_DIR/config.yaml" ]; then
+        set_config_key "listen" "true"
+
+        local RANDOM_PORT=$(random_port)
+        set_config_key "port" "${RANDOM_PORT}"
+
+        add_whitelist_entry "192.168.0.0/16"
+    fi
+
+    local IP=$(get_lan_ip)
+    local PORT=$(get_current_port)
+
+    echo -e "${GREEN}✓ 局域网访问已开启${NC}"
+    echo -e "${CYAN}🌐 访问地址: http://${IP:-<IP>}:${PORT}${NC}"
+    echo -e "${CYAN}  随机端口: ${PORT} (避免冲突)${NC}"
+
+    local PASS_STATUS=$(get_password_status)
+    if [[ "$PASS_STATUS" == "开启" ]]; then
+        echo -e "${YELLOW}⚠️ 密码验证未开启，局域网内任何人都能访问${NC}"
+        echo -e "${YELLOW}  建议按 m 设置密码验证${NC}"
+    fi
+
+    echo -e "${CYAN}🔄 正在自动重启酒馆以应用配置...${NC}"
+    fn_stop
+    sleep 2
+    fn_start
+    echo -e "${GREEN}✅ 配置已应用并重启完成${NC}"
+}
+
+fn_lan_off() {
+    rm -f "$LAN_FLAG"
+
+    if [ -f "$INSTALL_DIR/config.yaml" ]; then
+        set_config_key "listen" "false"
+        set_config_key "port" "8000"
+    fi
+
+    echo -e "${GREEN}✓ 局域网访问已关闭${NC}"
+    echo -e "${YELLOW}  端口恢复: 8000 (仅本机)${NC}"
+
+    if is_running; then
+        echo -e "${YELLOW}  正在自动重启酒馆以应用更改...${NC}"
+        fn_stop
+        sleep 1
+        fn_start
+    fi
+}
+
+# ---- 设置密码验证 ----
+fn_set_password() {
+    if ! check_installed; then
+        echo -e "${RED}未安装${NC}"
+        return
+    fi
+    if [ ! -f "$INSTALL_DIR/config.yaml" ]; then
+        echo -e "${RED}config.yaml 不存在${NC}"
+        return
+    fi
+
+    echo ""
+    echo -e "${CYAN}${BOLD}═══════ 访问控制设置 ═══════${NC}"
+    echo ""
+
+    if [ -f "$LAN_FLAG" ]; then
+        local IP=$(get_lan_ip)
+        local PORT=$(get_current_port)
+        echo -e "${CYAN}🌐 局域网状态: 已开启${NC}"
+        echo -e "${CYAN}   访问地址: http://${IP:-<IP>}:${PORT}${NC}"
+        echo -e "${CYAN}   当前端口: ${PORT}${NC}"
+    else
+        echo -e "${YELLOW}🌐 局域网状态: 已关闭 (仅本机访问)${NC}"
+    fi
+    echo ""
+
+    local CURRENT_AUTH=$(read_config_key "basicAuthMode")
+    local CURRENT_USER=$(read_config_key "username" 1)
+    local CURRENT_PASS=$(read_config_key "password" 1)
+    local CURRENT_WL=$(get_whitelist_mode)
+
+    echo -e "${YELLOW}📋 当前状态：${NC}"
+
+    if [ "$CURRENT_AUTH" = "true" ] && [ -n "$CURRENT_USER" ] && [ "$CURRENT_USER" != '""' ]; then
+        echo -e "  ${GREEN}密码验证：✅ 已开启${NC}"
+        echo -e "    ${CYAN}账号：${CURRENT_USER}${NC}"
+        if [ -n "$CURRENT_PASS" ] && [ "$CURRENT_PASS" != '""' ]; then
+            echo -e "    ${CYAN}密码：${CURRENT_PASS}${NC}"
+        else
+            echo -e "    ${YELLOW}密码：未设置${NC}"
+        fi
+    else
+        echo -e "  ${RED}密码验证：❌ 未开启${NC}"
+    fi
+
+    case "$CURRENT_WL" in
+        true)
+            echo -e "  ${GREEN}白名单模式：✅ 已开启${NC}"
+            ;;
+        false)
+            echo -e "  ${RED}白名单模式：❌ 已关闭${NC}"
+            ;;
+        *)
+            echo -e "  ${YELLOW}白名单模式：未设置${NC}"
+            ;;
+    esac
+    echo ""
+
+    echo -e "  ${GREEN}[1]${NC} 设置/修改账号密码"
+    echo -e "  ${YELLOW}[2]${NC} 关闭密码认证"
+    echo -e "  ${GREEN}[3]${NC} 重新生成随机端口"
+    echo -e "  ${CYAN}[4]${NC} 切换白名单模式 (当前: ${CURRENT_WL})"
+    echo -e "  ${RED}[0]${NC} 返回"
+    echo ""
+
+    printf "请选择: "
+    read -r PASS_CHOICE
+
+    case "$PASS_CHOICE" in
+        1)
+            echo ""
+            printf "请输入账号 (不能为空): "
+            read -r NEW_USER
+            if [ -z "$NEW_USER" ]; then
+                echo -e "${RED}账号不能为空，取消设置${NC}"
+                printf "按回车返回..."
+                read -r _
+                return
+            fi
+
+            printf "请输入密码 (不能为空): "
+            read -r NEW_PASSWORD
+            if [ -z "$NEW_PASSWORD" ]; then
+                echo -e "${RED}密码不能为空，取消设置${NC}"
+                printf "按回车返回..."
+                read -r _
+                return
+            fi
+
+            cp "$INSTALL_DIR/config.yaml" "$INSTALL_DIR/config.yaml.bak"
+
+            set_config_key "basicAuthMode" "true"
+            set_config_key "username" "\"${NEW_USER}\"" 1
+            set_config_key "password" "\"${NEW_PASSWORD}\"" 1
+
+            echo ""
+            echo -e "${GREEN}✓ 密码验证已设置${NC}"
+            echo -e "  ${CYAN}账号: ${NEW_USER}${NC}"
+
+            if is_running; then
+                echo -e "${YELLOW}  ⚠️ 需要重启酒馆才能生效${NC}"
+            fi
+            ;;
+        2)
+            echo ""
+            if [ "$(read_config_key basicAuthMode)" = "true" ]; then
+                set_config_key "basicAuthMode" "false"
+                echo -e "${GREEN}✓ 密码认证已关闭${NC}"
+            else
+                echo -e "${YELLOW}密码认证未开启${NC}"
+            fi
+            if is_running; then
+                echo -e "${YELLOW}  ⚠️ 需要重启酒馆才能生效${NC}"
+            fi
+            ;;
+        3)
+            echo ""
+            if [ ! -f "$LAN_FLAG" ]; then
+                echo -e "${YELLOW}⚠️ 局域网未开启，无需随机端口${NC}"
+                printf "按回车返回..."
+                read -r _
+                return
+            fi
+
+            local NEW_PORT=$(random_port)
+            set_config_key "port" "${NEW_PORT}"
+
+            echo -e "${GREEN}✓ 端口已更换为: ${NEW_PORT}${NC}"
+
+            if is_running; then
+                echo -e "${YELLOW}  ⚠️ 需要重启酒馆才能生效${NC}"
+            fi
+            ;;
+        4)
+            echo ""
+            toggle_whitelist_mode
+            echo ""
+            if is_running; then
+                echo -e "${YELLOW}  ⚠️ 需要重启酒馆才能生效${NC}"
+            fi
+            ;;
+        0) return ;;
+        *) echo -e "${RED}无效选项${NC}" ;;
+    esac
+
+    echo ""
+    printf "按回车返回..."
+    read -r _
 }
 
 # ======================================
@@ -2077,7 +2064,7 @@ if ! check_installed; then
 else
     setup_auto_menu
 
-    # 每次打开脚本时，默认关闭局域网（保留白名单设置）
+    # 每次打开脚本时，默认关闭局域网
     rm -f "$LAN_FLAG" 2>/dev/null
     if [ -f "$INSTALL_DIR/config.yaml" ]; then
         sed -i 's/^listen:.*/listen: false/' "$INSTALL_DIR/config.yaml" 2>/dev/null
