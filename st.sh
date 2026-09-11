@@ -42,23 +42,53 @@ read_config_key() {
 
 # ======================================
 # 统一：node_modules 瘦身
+# 保留：图片处理(canvas/sharp/jimp)、向量化(@xenova/onnxruntime)、TTS
 # ======================================
 slim_node_modules() {
     local dir="${1:-$INSTALL_DIR/node_modules}"
     [ -d "$dir" ] || return 0
+
+    local before after
+    before=$(du -sm "$dir" 2>/dev/null | cut -f1)
+
+    # ---- 1) 文档 / 测试 / 示例（原有逻辑）----
     find "$dir" -type f \( \
         -name "README*" -o -name "CHANGELOG*" -o -name "LICENSE*" \
         -o -name "AUTHORS*" -o -name "*.md" -o -name "*.map" \
         -o -name ".travis.yml" -o -name ".eslintrc*" \
         -o -name ".prettierrc*" -o -name ".editorconfig" \) \
         -delete 2>/dev/null
+
     find "$dir" -type d \( \
         -name "test" -o -name "tests" -o -name "__tests__" \
         -o -name "docs" -o -name "examples" -o -name "benchmark" \
         -o -name ".github" -o -name ".circleci" \
         -o -name ".vscode" -o -name ".idea" \) \
         -exec rm -rf {} + 2>/dev/null
-    rm -rf "$dir/.cache" 2>/dev/null
+
+    rm -rf "$dir/.cache" "$dir/.bin" 2>/dev/null
+
+    # ---- 2) 纯开发 / 构建 / 类型（运行时无用）----
+    rm -rf \
+        "$dir/typescript" \
+        "$dir/esbuild" "$dir/@esbuild" \
+        "$dir/rollup" "$dir/rollup-"* "$dir/@rollup" \
+        "$dir/webpack" "$dir/webpack-"* "$dir/@webpack" \
+        "$dir/vite" "$dir/@vitejs" \
+        2>/dev/null
+
+    find "$dir" -type d -name "@types" -exec rm -rf {} + 2>/dev/null
+    find "$dir" -name "*.d.ts" -delete 2>/dev/null
+
+    # ---- 3) 无头浏览器（Termux 上跑不起来）----
+    rm -rf \
+        "$dir"/puppeteer* "$dir"/@puppeteer \
+        "$dir"/playwright* "$dir"/@playwright \
+        "$dir"/chromium* \
+        2>/dev/null
+
+    after=$(du -sm "$dir" 2>/dev/null | cut -f1)
+    echo -e "${GREEN}✓ node_modules: ${before}MB → ${after}MB${NC}"
 }
 
 # ======================================
@@ -1186,19 +1216,39 @@ fn_start() {
     fi
     if is_running; then
         echo -e "${GREEN}已在运行${NC}"
+        print_access_url
         return
     fi
 
     echo -e "${GREEN}启动中...${NC}"
-    cd "$INSTALL_DIR"
+    cd "$INSTALL_DIR" || return
     nohup bash start.sh > "$INSTALL_DIR/nohup.out" 2>&1 &
-    sleep 3
 
+    # ---- 轮询等待，最多 30 秒 ----
+    local waited=0
+    local max_wait=30
+    printf "${CYAN}等待进程就绪"
+    while [ "$waited" -lt "$max_wait" ]; do
+        if is_running; then
+            printf " ${GREEN}✓${NC}\n"
+            echo -e "${GREEN}✓ 已启动（耗时 ${waited}s）${NC}"
+            print_access_url
+            return
+        fi
+        printf "."
+        sleep 1
+        waited=$((waited + 1))
+    done
+
+    printf "\n"
+    # 超时了，给最后一次机会 + 打印日志线索
     if is_running; then
         echo -e "${GREEN}✓ 已启动${NC}"
         print_access_url
     else
-        echo -e "${RED}✗ 启动失败${NC}"
+        echo -e "${RED}✗ 启动超时（${max_wait}s），可能失败${NC}"
+        echo -e "${YELLOW}💡 最近日志：${NC}"
+        tail -10 "$INSTALL_DIR/nohup.out" 2>/dev/null | sed 's/^/    /'
     fi
 }
 
