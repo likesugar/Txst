@@ -41,54 +41,163 @@ read_config_key() {
 }
 
 # ======================================
+# 统一：设置/更新 YAML 顶层键值（不覆盖整个文件）
+# 用法: set_config_key <key> <value> [indent]
+#   indent=0 → 顶层键；indent=1 → 二级键（basicAuthUser 下）
+# ======================================
+set_config_key() {
+    local key="$1"
+    local value="$2"
+    local indent="${3:-0}"
+    local cfg="$INSTALL_DIR/config.yaml"
+
+    touch "$cfg"
+
+    if [ "$indent" = "1" ]; then
+        if awk '
+            /^basicAuthUser:/ {inblk=1; next}
+            inblk && /^[^[:space:]]/ {inblk=0}
+            inblk && $0 ~ "^  '"${key}"':" {found=1}
+            END {exit !found}
+        ' "$cfg"; then
+            awk -v k="$key" -v v="$value" '
+                /^basicAuthUser:/ {inblk=1; print; next}
+                inblk && /^[^[:space:]]/ {inblk=0}
+                inblk && $0 ~ "^  "k":" {print "  "k": "v; next}
+                {print}
+            ' "$cfg" > "$cfg.tmp" && mv "$cfg.tmp" "$cfg"
+        else
+            if ! grep -q "^basicAuthUser:" "$cfg" 2>/dev/null; then
+                echo "basicAuthUser:" >> "$cfg"
+            fi
+            awk -v k="$key" -v v="$value" '
+                /^basicAuthUser:/ {print; print "  "k": "v; next}
+                {print}
+            ' "$cfg" > "$cfg.tmp" && mv "$cfg.tmp" "$cfg"
+        fi
+    else
+        if grep -q "^${key}:" "$cfg" 2>/dev/null; then
+            sed -i "s|^${key}:.*|${key}: ${value}|" "$cfg"
+        else
+            echo "${key}: ${value}" >> "$cfg"
+        fi
+    fi
+}
+
+# ======================================
+# 统一：仅当顶层键不存在时，追加一段 YAML 块
+# 用法: append_yaml_block_if_missing <key> <<'EOF' ... EOF
+# ======================================
+append_yaml_block_if_missing() {
+    local key="$1"
+    local cfg="$INSTALL_DIR/config.yaml"
+    touch "$cfg"
+    if ! grep -q "^${key}:" "$cfg" 2>/dev/null; then
+        cat >> "$cfg"
+    fi
+}
+
+# ======================================
+# 统一：向 whitelist 追加一个网段（已存在则跳过）
+# 用法: add_whitelist_entry <cidr>
+# ======================================
+add_whitelist_entry() {
+    local entry="$1"
+    local cfg="$INSTALL_DIR/config.yaml"
+    touch "$cfg"
+
+    if ! grep -q "^whitelist:" "$cfg" 2>/dev/null; then
+        {
+            echo "whitelist:"
+            echo "  - ::1"
+            echo "  - 127.0.0.1"
+            echo "  - ${entry}"
+        } >> "$cfg"
+        return
+    fi
+
+    if awk '
+        /^whitelist:/ {inblk=1; next}
+        inblk && /^[^[:space:]]/ {inblk=0}
+        inblk && $0 ~ /^[[:space:]]*-[[:space:]]*/ {
+            line=$0
+            sub(/^[[:space:]]*-[[:space:]]*/, "", line)
+            if (line == "'"${entry}"'") {found=1}
+        }
+        END {exit !found}
+    ' "$cfg"; then
+        return 0
+    fi
+
+    awk -v e="$entry" '
+        /^whitelist:/ {inblk=1; print; next}
+        inblk && /^[^[:space:]]/ {
+            if (!done) {print "  - " e; done=1}
+            inblk=0
+        }
+        {print}
+        END {if (inblk && !done) print "  - " e}
+    ' "$cfg" > "$cfg.tmp" && mv "$cfg.tmp" "$cfg"
+}
+
+# ======================================
+# 统一：切换 whitelistMode
+# 用法: toggle_whitelist_mode
+# ======================================
+toggle_whitelist_mode() {
+    local cfg="$INSTALL_DIR/config.yaml"
+    [ -f "$cfg" ] || { echo -e "${RED}config.yaml 不存在${NC}"; return 1; }
+
+    local cur
+    cur=$(read_config_key "whitelistMode")
+    local new
+
+    if [ "$cur" = "true" ]; then
+        new="false"
+    else
+        new="true"
+    fi
+
+    set_config_key "whitelistMode" "$new"
+
+    if [ "$new" = "true" ]; then
+        echo -e "${GREEN}✓ 白名单模式已开启${NC}"
+        echo -e "${YELLOW}  只有 whitelist 列表中的 IP 能访问${NC}"
+        echo -e "${CYAN}  当前白名单条目:${NC}"
+        awk '
+            /^whitelist:/ {inblk=1; next}
+            inblk && /^[^[:space:]]/ {inblk=0}
+            inblk && /^[[:space:]]*-/ {print "    " $0}
+        ' "$cfg"
+    else
+        echo -e "${YELLOW}✓ 白名单模式已关闭${NC}"
+        echo -e "${RED}  ⚠️ 任何 IP 都能访问，请务必开启密码验证！${NC}"
+        if [ "$(read_config_key basicAuthMode)" != "true" ]; then
+            echo -e "${RED}  ⚠️ 当前密码验证未开启${NC}"
+            echo -e "${RED}  ⚠️ listen: true 时酒馆会因不安全而拒绝启动！${NC}"
+        fi
+    fi
+}
+
+# ======================================
 # 统一：node_modules 瘦身
-# 保留：图片处理(canvas/sharp/jimp)、向量化(@xenova/onnxruntime)、TTS
 # ======================================
 slim_node_modules() {
     local dir="${1:-$INSTALL_DIR/node_modules}"
     [ -d "$dir" ] || return 0
-
-    local before after
-    before=$(du -sm "$dir" 2>/dev/null | cut -f1)
-
-    # ---- 1) 文档 / 测试 / 示例（原有逻辑）----
     find "$dir" -type f \( \
         -name "README*" -o -name "CHANGELOG*" -o -name "LICENSE*" \
         -o -name "AUTHORS*" -o -name "*.md" -o -name "*.map" \
         -o -name ".travis.yml" -o -name ".eslintrc*" \
         -o -name ".prettierrc*" -o -name ".editorconfig" \) \
         -delete 2>/dev/null
-
     find "$dir" -type d \( \
         -name "test" -o -name "tests" -o -name "__tests__" \
         -o -name "docs" -o -name "examples" -o -name "benchmark" \
         -o -name ".github" -o -name ".circleci" \
         -o -name ".vscode" -o -name ".idea" \) \
         -exec rm -rf {} + 2>/dev/null
-
-    rm -rf "$dir/.cache" "$dir/.bin" 2>/dev/null
-
-    # ---- 2) 纯开发 / 构建 / 类型（运行时无用）----
-    rm -rf \
-        "$dir/typescript" \
-        "$dir/esbuild" "$dir/@esbuild" \
-        "$dir/rollup" "$dir/rollup-"* "$dir/@rollup" \
-        "$dir/webpack" "$dir/webpack-"* "$dir/@webpack" \
-        "$dir/vite" "$dir/@vitejs" \
-        2>/dev/null
-
-    find "$dir" -type d -name "@types" -exec rm -rf {} + 2>/dev/null
-    find "$dir" -name "*.d.ts" -delete 2>/dev/null
-
-    # ---- 3) 无头浏览器（Termux 上跑不起来）----
-    rm -rf \
-        "$dir"/puppeteer* "$dir"/@puppeteer \
-        "$dir"/playwright* "$dir"/@playwright \
-        "$dir"/chromium* \
-        2>/dev/null
-
-    after=$(du -sm "$dir" 2>/dev/null | cut -f1)
-    echo -e "${GREEN}✓ node_modules: ${before}MB → ${after}MB${NC}"
+    rm -rf "$dir/.cache" 2>/dev/null
 }
 
 # ======================================
@@ -103,9 +212,9 @@ clean_npm_cache() {
 # 统一：日志轮转（8MB，保留 2 份历史）
 # ======================================
 rotate_logs() {
-    local max_size=$((8 * 1024 * 1024))  # 8MB
+    local max_size=$((8 * 1024 * 1024))
     local log_file="$INSTALL_DIR/nohup.out"
-    local max_backups=2                  # ← 这里 3 改成 2
+    local max_backups=2
 
     [ -f "$log_file" ] || return 0
 
@@ -114,7 +223,6 @@ rotate_logs() {
 
     [ "$current_size" -lt "$max_size" ] && return 0
 
-    # 轮转：nohup.out → nohup.out.1 → nohup.out.2
     local i=$max_backups
     while [ $i -gt 1 ]; do
         local prev=$((i - 1))
@@ -125,7 +233,6 @@ rotate_logs() {
     mv -f "$log_file" "${log_file}.1" 2>/dev/null
     : > "$log_file"
 
-    # 清理超过 max_backups 的旧日志
     local j=$((max_backups + 1))
     while [ -f "${log_file}.${j}" ]; do
         rm -f "${log_file}.${j}" 2>/dev/null
@@ -210,7 +317,6 @@ slim_git_node() {
 clean_and_reinstall_deps() {
     local clean_cache=0 do_slim=1 label="依赖"
 
-    # 解析参数
     while [ $# -gt 0 ]; do
         case "$1" in
             --clean-cache) clean_cache=1 ;;
@@ -221,13 +327,11 @@ clean_and_reinstall_deps() {
         shift
     done
 
-    # 内部日志函数（尊重 quiet）
     log() {
         [ "${ST_QUIET:-0}" = "1" ] && return 0
         echo -e "$@"
     }
     err() {
-        # 错误始终显示，不受 quiet 影响
         echo -e "$@" >&2
     }
 
@@ -242,7 +346,6 @@ clean_and_reinstall_deps() {
         sleep 1
     fi
 
-    # 关键：把 quiet 标志导出给子 shell
     export ST_QUIET="${ST_QUIET:-0}"
 
     (
@@ -282,7 +385,6 @@ clean_and_reinstall_deps() {
         fi
     )
 
-    # 清理 quiet 标志，避免影响后续调用
     unset ST_QUIET
 }
 
@@ -385,6 +487,274 @@ show_menu() {
 # ---- 生成随机端口 ----
 random_port() {
     echo $((10000 + RANDOM % 39152))
+}
+
+# ======================================
+# 菜单功能（提前定义，供局域网功能调用）
+# ======================================
+fn_start() {
+    if ! check_installed; then
+        echo -e "${RED}未安装${NC}"
+        return
+    fi
+    if is_running; then
+        echo -e "${GREEN}已在运行${NC}"
+        return
+    fi
+
+    echo -e "${GREEN}启动中...${NC}"
+    cd "$INSTALL_DIR"
+    nohup bash start.sh > "$INSTALL_DIR/nohup.out" 2>&1 &
+
+    # 轮询等待，最多 30 秒
+    local i=0
+    printf "  等待服务就绪"
+    while [ $i -lt 30 ]; do
+        if is_running; then
+            break
+        fi
+        printf "."
+        sleep 1
+        i=$((i + 1))
+    done
+    echo ""
+
+    if is_running; then
+        echo -e "${GREEN}✓ 已启动${NC}"
+        print_access_url
+    else
+        echo -e "${RED}✗ 启动超时，查看日志：${NC}"
+        echo -e "${YELLOW}  tail -30 $INSTALL_DIR/nohup.out${NC}"
+    fi
+}
+
+fn_stop() {
+    pkill -f "node.*server.js" 2>/dev/null || true
+    sleep 1
+    pkill -9 -f "node.*server.js" 2>/dev/null || true
+    echo -e "${GREEN}✓ 已停止${NC}"
+}
+
+fn_restart() {
+    fn_stop
+    sleep 1
+    fn_start
+}
+
+# ======================================
+# 局域网功能（只加 192.168.0.0/16）
+# ======================================
+fn_lan_on() {
+    touch "$LAN_FLAG"
+
+    if [ -f "$INSTALL_DIR/config.yaml" ]; then
+        set_config_key "listen" "true"
+
+        local RANDOM_PORT=$(random_port)
+        set_config_key "port" "${RANDOM_PORT}"
+
+        # 只追加 192.168.0.0/16，不覆盖其他白名单条目
+        add_whitelist_entry "192.168.0.0/16"
+    fi
+
+    local IP=$(get_lan_ip)
+    local PORT=$(get_current_port)
+
+    echo -e "${GREEN}✓ 局域网访问已开启${NC}"
+    echo -e "${CYAN}🌐 访问地址: http://${IP:-<IP>}:${PORT}${NC}"
+    echo -e "${CYAN}  随机端口: ${PORT} (避免冲突)${NC}"
+
+    local PASS_STATUS=$(get_password_status)
+    if [[ "$PASS_STATUS" == "开启" ]]; then
+        echo -e "${YELLOW}⚠️ 密码验证未开启，局域网内任何人都能访问${NC}"
+        echo -e "${YELLOW}  建议按 m 设置密码验证${NC}"
+    fi
+
+    echo -e "${CYAN}🔄 正在自动重启酒馆以应用配置...${NC}"
+    fn_stop
+    sleep 2
+    fn_start
+    echo -e "${GREEN}✅ 配置已应用并重启完成${NC}"
+}
+
+fn_lan_off() {
+    rm -f "$LAN_FLAG"
+
+    if [ -f "$INSTALL_DIR/config.yaml" ]; then
+        set_config_key "listen" "false"
+        set_config_key "port" "8000"
+    fi
+
+    echo -e "${GREEN}✓ 局域网访问已关闭${NC}"
+    echo -e "${YELLOW}  端口恢复: 8000 (仅本机)${NC}"
+
+    if is_running; then
+        echo -e "${YELLOW}  正在自动重启酒馆以应用更改...${NC}"
+        fn_stop
+        sleep 1
+        fn_start
+    fi
+}
+
+# ---- 设置密码验证 ----
+fn_set_password() {
+    if ! check_installed; then
+        echo -e "${RED}未安装${NC}"
+        return
+    fi
+    if [ ! -f "$INSTALL_DIR/config.yaml" ]; then
+        echo -e "${RED}config.yaml 不存在${NC}"
+        return
+    fi
+
+    echo ""
+    echo -e "${CYAN}${BOLD}═══════ 密码验证设置 ═══════${NC}"
+    echo ""
+
+    if [ -f "$LAN_FLAG" ]; then
+        local IP=$(get_lan_ip)
+        local PORT=$(get_current_port)
+        echo -e "${CYAN}🌐 局域网状态: 已开启${NC}"
+        echo -e "${CYAN}   访问地址: http://${IP:-<IP>}:${PORT}${NC}"
+        echo -e "${CYAN}   当前端口: ${PORT}${NC}"
+    else
+        echo -e "${YELLOW}🌐 局域网状态: 已关闭 (仅本机访问)${NC}"
+    fi
+    echo ""
+
+    local CURRENT_AUTH=$(read_config_key "basicAuthMode")
+    local CURRENT_USER=$(read_config_key "username" 1)
+    local CURRENT_PASS=$(read_config_key "password" 1)
+    local CURRENT_WL=$(read_config_key "whitelistMode")
+
+    echo -e "${YELLOW}📋 当前安全状态：${NC}"
+
+    if [ "$CURRENT_AUTH" = "true" ] && [ -n "$CURRENT_USER" ] && [ "$CURRENT_USER" != '""' ]; then
+        echo -e "  ${GREEN}密码验证：✅ 已开启${NC}"
+        echo -e "    ${CYAN}账号：${CURRENT_USER}${NC}"
+        if [ -n "$CURRENT_PASS" ] && [ "$CURRENT_PASS" != '""' ]; then
+            echo -e "    ${CYAN}密码：${CURRENT_PASS}${NC}"
+        else
+            echo -e "    ${YELLOW}密码：未设置${NC}"
+        fi
+    else
+        echo -e "  ${RED}密码验证：❌ 未开启${NC}"
+    fi
+
+    if [ "$CURRENT_WL" = "true" ]; then
+        echo -e "  ${GREEN}白名单模式：✅ 已开启${NC}"
+    elif [ "$CURRENT_WL" = "false" ]; then
+        echo -e "  ${RED}白名单模式：❌ 已关闭${NC}"
+    else
+        echo -e "  ${YELLOW}白名单模式：未设置${NC}"
+    fi
+
+    echo ""
+    if [ "$CURRENT_AUTH" = "true" ] && [ "$CURRENT_WL" = "true" ]; then
+        echo -e "  ${GREEN}🛡️ 当前双重防护已开启（密码 + 白名单）${NC}"
+    elif [ "$CURRENT_AUTH" = "true" ] && [ "$CURRENT_WL" != "true" ]; then
+        echo -e "  ${YELLOW}💡 已开密码验证，但白名单未开启${NC}"
+        echo -e "  ${YELLOW}   局域网内任意设备都能连到登录页，建议同时开启白名单${NC}"
+    elif [ "$CURRENT_AUTH" != "true" ] && [ "$CURRENT_WL" = "true" ]; then
+        echo -e "  ${YELLOW}💡 已开白名单，但密码验证未开启${NC}"
+        echo -e "  ${YELLOW}   同网段设备可无密码访问，建议设置账号密码${NC}"
+    else
+        echo -e "  ${RED}⚠️ 密码验证与白名单均未开启${NC}"
+        echo -e "  ${RED}   如果同时 listen: true，酒馆会因不安全而拒绝启动！${NC}"
+        echo -e "  ${YELLOW}   请至少开启一项：密码验证 或 白名单模式${NC}"
+    fi
+    echo ""
+
+    echo -e "  ${GREEN}[1]${NC} 设置/修改账号密码"
+    echo -e "  ${YELLOW}[2]${NC} 关闭密码认证"
+    echo -e "  ${GREEN}[3]${NC} 重新生成随机端口"
+    echo -e "  ${CYAN}[4]${NC} 切换白名单模式 (当前: ${CURRENT_WL:-未设置})"
+    echo -e "  ${RED}[0]${NC} 返回"
+    echo ""
+
+    printf "请选择: "
+    read -r PASS_CHOICE
+
+    case "$PASS_CHOICE" in
+        1)
+            echo ""
+            printf "请输入账号 (不能为空): "
+            read -r NEW_USER
+            if [ -z "$NEW_USER" ]; then
+                echo -e "${RED}账号不能为空，取消设置${NC}"
+                printf "按回车返回..."
+                read -r _
+                return
+            fi
+
+            printf "请输入密码 (不能为空): "
+            read -r NEW_PASSWORD
+            if [ -z "$NEW_PASSWORD" ]; then
+                echo -e "${RED}密码不能为空，取消设置${NC}"
+                printf "按回车返回..."
+                read -r _
+                return
+            fi
+
+            cp "$INSTALL_DIR/config.yaml" "$INSTALL_DIR/config.yaml.bak"
+
+            set_config_key "basicAuthMode" "true"
+            set_config_key "username" "\"${NEW_USER}\"" 1
+            set_config_key "password" "\"${NEW_PASSWORD}\"" 1
+
+            echo ""
+            echo -e "${GREEN}✓ 密码验证已设置${NC}"
+            echo -e "  ${CYAN}账号: ${NEW_USER}${NC}"
+
+            if is_running; then
+                echo -e "${YELLOW}  ⚠️ 需要重启酒馆才能生效${NC}"
+            fi
+            ;;
+        2)
+            echo ""
+            if [ "$(read_config_key basicAuthMode)" = "true" ]; then
+                set_config_key "basicAuthMode" "false"
+                echo -e "${GREEN}✓ 密码认证已关闭${NC}"
+            else
+                echo -e "${YELLOW}密码认证未开启${NC}"
+            fi
+            if is_running; then
+                echo -e "${YELLOW}  ⚠️ 需要重启酒馆才能生效${NC}"
+            fi
+            ;;
+        3)
+            echo ""
+            if [ ! -f "$LAN_FLAG" ]; then
+                echo -e "${YELLOW}⚠️ 局域网未开启，无需随机端口${NC}"
+                printf "按回车返回..."
+                read -r _
+                return
+            fi
+
+            local NEW_PORT=$(random_port)
+            set_config_key "port" "${NEW_PORT}"
+
+            echo -e "${GREEN}✓ 端口已更换为: ${NEW_PORT}${NC}"
+
+            if is_running; then
+                echo -e "${YELLOW}  ⚠️ 需要重启酒馆才能生效${NC}"
+            fi
+            ;;
+        4)
+            echo ""
+            toggle_whitelist_mode
+            echo ""
+            if is_running; then
+                echo -e "${YELLOW}  ⚠️ 需要重启酒馆才能生效${NC}"
+            fi
+            ;;
+        0) return ;;
+        *) echo -e "${RED}无效选项${NC}" ;;
+    esac
+
+    echo ""
+    printf "按回车返回..."
+    read -r _
 }
 
 # ======================================
@@ -723,7 +1093,7 @@ install_one() {
 }
 
 # ======================================
-# 推荐配置
+# 推荐配置（增量合并，不整体覆盖）
 # ======================================
 fn_config() {
     if ! check_installed; then
@@ -735,8 +1105,10 @@ fn_config() {
     echo ""
 
     if [ -f "$INSTALL_DIR/config.yaml" ]; then
-        echo -e "${YELLOW}⚠️ config.yaml 已存在${NC}"
-        printf "是否覆盖为推荐配置？[y/N]: "
+        echo -e "${YELLOW}⚠️ config.yaml 已存在，将执行「增量合并」：${NC}"
+        echo -e "${YELLOW}   已存在的键会被更新为推荐值，其他自定义配置保持不变。${NC}"
+        echo ""
+        printf "是否继续？[y/N]: "
         read -r OVERWRITE
         if [ "$OVERWRITE" != "y" ] && [ "$OVERWRITE" != "Y" ]; then
             echo -e "${YELLOW}取消${NC}"
@@ -748,32 +1120,42 @@ fn_config() {
         echo -e "${CYAN}✓ 已备份旧配置为 config.yaml.bak${NC}"
     fi
 
-    echo -e "${CYAN}💙 生成推荐配置...${NC}"
-    cat > "$INSTALL_DIR/config.yaml" << 'EOF'
-listen: false
-port: 8000
+    echo -e "${CYAN}💙 合并推荐配置（保留已有其他项）...${NC}"
+
+    set_config_key "listen" "false"
+    set_config_key "port" "8000"
+    set_config_key "basicAuthMode" "false"
+
+    append_yaml_block_if_missing "whitelist" << 'EOF'
 whitelist:
   - ::1
   - 127.0.0.1
   - 192.168.0.0/16
-basicAuthMode: false
-basicAuthUser:
-  username: ""
-  password: ""
-rateLimiting:
-  accountsResetMaxAttempts: 5
+EOF
+
+    append_yaml_block_if_missing "performance" << 'EOF'
 performance:
   lazyLoadCharacters: true
 EOF
 
+    append_yaml_block_if_missing "rateLimiting" << 'EOF'
+rateLimiting:
+  accountsResetMaxAttempts: 5
+EOF
+
+    append_yaml_block_if_missing "basicAuthUser" << 'EOF'
+basicAuthUser:
+  username: ""
+  password: ""
+EOF
+
     if [ -f "$INSTALL_DIR/config.yaml" ]; then
-        echo -e "${GREEN}✓ 推荐配置已生成${NC}"
+        echo -e "${GREEN}✓ 推荐配置已合并${NC}"
         echo ""
-        echo -e "  ${YELLOW}📋 配置内容：${NC}"
-        echo -e "    ${CYAN}端口：${NC}8000"
-        echo -e "    ${CYAN}密码验证：${NC}关闭"
-        echo -e "    ${CYAN}懒加载角色：${NC}开启"
-        echo -e "    ${CYAN}局域网白名单：${NC}已配置"
+        echo -e "  ${YELLOW}📋 当前关键配置：${NC}"
+        echo -e "    ${CYAN}端口：${NC}$(read_config_key port)"
+        echo -e "    ${CYAN}密码验证：${NC}$(get_password_status)"
+        echo -e "    ${CYAN}局域网 listen：${NC}$(read_config_key listen)"
         echo ""
         echo -e "${YELLOW}💡 按 m 可设置密码验证${NC}"
         echo -e "${YELLOW}💡 按 y 可开启局域网访问${NC}"
@@ -998,274 +1380,6 @@ fn_foxium() {
 }
 
 # ======================================
-# 局域网功能
-# ======================================
-fn_lan_on() {
-    touch "$LAN_FLAG"
-
-    if [ -f "$INSTALL_DIR/config.yaml" ]; then
-        if grep -q "^listen:" "$INSTALL_DIR/config.yaml" 2>/dev/null; then
-            sed -i 's/^listen:.*/listen: true/' "$INSTALL_DIR/config.yaml"
-        else
-            echo "listen: true" >> "$INSTALL_DIR/config.yaml"
-        fi
-
-        local RANDOM_PORT=$(random_port)
-        if grep -q "^port:" "$INSTALL_DIR/config.yaml" 2>/dev/null; then
-            sed -i "s/^port:.*/port: ${RANDOM_PORT}/" "$INSTALL_DIR/config.yaml"
-        else
-            echo "port: ${RANDOM_PORT}" >> "$INSTALL_DIR/config.yaml"
-        fi
-
-        if ! grep -q "^whitelist:" "$INSTALL_DIR/config.yaml" 2>/dev/null; then
-            echo "whitelist:" >> "$INSTALL_DIR/config.yaml"
-            echo "  - ::1" >> "$INSTALL_DIR/config.yaml"
-            echo "  - 127.0.0.1" >> "$INSTALL_DIR/config.yaml"
-            echo "  - 192.168.0.0/16" >> "$INSTALL_DIR/config.yaml"
-        fi
-    fi
-
-    local IP=$(get_lan_ip)
-    local PORT=$(get_current_port)
-
-    echo -e "${GREEN}✓ 局域网访问已开启${NC}"
-    echo -e "${CYAN}🌐 访问地址: http://${IP:-<IP>}:${PORT}${NC}"
-    echo -e "${CYAN}  随机端口: ${PORT} (避免冲突)${NC}"
-
-    local PASS_STATUS=$(get_password_status)
-    if [[ "$PASS_STATUS" == "开启" ]]; then
-        echo -e "${YELLOW}⚠️ 密码验证未开启，局域网内任何人都能访问${NC}"
-        echo -e "${YELLOW}  建议按 m 设置密码验证${NC}"
-    fi
-
-    echo -e "${CYAN}🔄 正在自动重启酒馆以应用配置...${NC}"
-    fn_stop
-    sleep 2
-    fn_start
-    echo -e "${GREEN}✅ 配置已应用并重启完成${NC}"
-}
-
-fn_lan_off() {
-    rm -f "$LAN_FLAG"
-
-    if [ -f "$INSTALL_DIR/config.yaml" ]; then
-        sed -i 's/^listen:.*/listen: false/' "$INSTALL_DIR/config.yaml"
-        sed -i 's/^port:.*/port: 8000/' "$INSTALL_DIR/config.yaml"
-    fi
-
-    echo -e "${GREEN}✓ 局域网访问已关闭${NC}"
-    echo -e "${YELLOW}  端口恢复: 8000 (仅本机)${NC}"
-
-    if is_running; then
-        echo -e "${YELLOW}  正在自动重启酒馆以应用更改...${NC}"
-        fn_stop
-        sleep 1
-        fn_start
-    fi
-}
-
-# ---- 设置密码验证 ----
-fn_set_password() {
-    if ! check_installed; then
-        echo -e "${RED}未安装${NC}"
-        return
-    fi
-    if [ ! -f "$INSTALL_DIR/config.yaml" ]; then
-        echo -e "${RED}config.yaml 不存在${NC}"
-        return
-    fi
-
-    echo ""
-    echo -e "${CYAN}${BOLD}═══════ 密码验证设置 ═══════${NC}"
-    echo ""
-
-    if [ -f "$LAN_FLAG" ]; then
-        local IP=$(get_lan_ip)
-        local PORT=$(get_current_port)
-        echo -e "${CYAN}🌐 局域网状态: 已开启${NC}"
-        echo -e "${CYAN}   访问地址: http://${IP:-<IP>}:${PORT}${NC}"
-        echo -e "${CYAN}   当前端口: ${PORT}${NC}"
-    else
-        echo -e "${YELLOW}🌐 局域网状态: 已关闭 (仅本机访问)${NC}"
-    fi
-    echo ""
-
-    local CURRENT_AUTH=$(read_config_key "basicAuthMode")
-    local CURRENT_USER=$(read_config_key "username" 1)
-    local CURRENT_PASS=$(read_config_key "password" 1)
-
-    echo -e "${YELLOW}📋 密码验证状态：${NC}"
-    if [ "$CURRENT_AUTH" = "true" ] && [ -n "$CURRENT_USER" ] && [ "$CURRENT_USER" != '""' ]; then
-        echo -e "  ${GREEN}状态：✅ 已开启${NC}"
-        echo -e "  ${CYAN}账号：${CURRENT_USER}${NC}"
-        if [ -n "$CURRENT_PASS" ] && [ "$CURRENT_PASS" != '""' ]; then
-            echo -e "  ${CYAN}密码：${CURRENT_PASS}${NC}"
-        else
-            echo -e "  ${YELLOW}密码：未设置${NC}"
-        fi
-    else
-        echo -e "  ${RED}状态：❌ 未开启${NC}"
-    fi
-    echo ""
-
-    echo -e "  ${GREEN}[1]${NC} 设置/修改账号密码"
-    echo -e "  ${YELLOW}[2]${NC} 关闭密码认证"
-    echo -e "  ${GREEN}[3]${NC} 重新生成随机端口"
-    echo -e "  ${RED}[0]${NC} 返回"
-    echo ""
-
-    printf "请选择: "
-    read -r PASS_CHOICE
-
-    case "$PASS_CHOICE" in
-        1)
-            echo ""
-            printf "请输入账号 (不能为空): "
-            read -r NEW_USER
-            if [ -z "$NEW_USER" ]; then
-                echo -e "${RED}账号不能为空，取消设置${NC}"
-                printf "按回车返回..."
-                read -r _
-                return
-            fi
-
-            printf "请输入密码 (不能为空): "
-            read -r NEW_PASSWORD
-            if [ -z "$NEW_PASSWORD" ]; then
-                echo -e "${RED}密码不能为空，取消设置${NC}"
-                printf "按回车返回..."
-                read -r _
-                return
-            fi
-
-            cp "$INSTALL_DIR/config.yaml" "$INSTALL_DIR/config.yaml.bak"
-
-            if grep -q "^basicAuthMode:" "$INSTALL_DIR/config.yaml" 2>/dev/null; then
-                sed -i 's/^basicAuthMode:.*/basicAuthMode: true/' "$INSTALL_DIR/config.yaml"
-            else
-                echo "basicAuthMode: true" >> "$INSTALL_DIR/config.yaml"
-            fi
-
-            if grep -q "^basicAuthUser:" "$INSTALL_DIR/config.yaml" 2>/dev/null; then
-                sed -i "s/^  username:.*/  username: \"${NEW_USER}\"/" "$INSTALL_DIR/config.yaml"
-                sed -i "s/^  password:.*/  password: \"${NEW_PASSWORD}\"/" "$INSTALL_DIR/config.yaml"
-            else
-                echo "basicAuthUser:" >> "$INSTALL_DIR/config.yaml"
-                echo "  username: \"${NEW_USER}\"" >> "$INSTALL_DIR/config.yaml"
-                echo "  password: \"${NEW_PASSWORD}\"" >> "$INSTALL_DIR/config.yaml"
-            fi
-
-            echo ""
-            echo -e "${GREEN}✓ 密码验证已设置${NC}"
-            echo -e "  ${CYAN}账号: ${NEW_USER}${NC}"
-
-            if is_running; then
-                echo -e "${YELLOW}  ⚠️ 需要重启酒馆才能生效${NC}"
-            fi
-            ;;
-        2)
-            echo ""
-            if grep -q "^basicAuthMode:" "$INSTALL_DIR/config.yaml" 2>/dev/null; then
-                sed -i 's/^basicAuthMode:.*/basicAuthMode: false/' "$INSTALL_DIR/config.yaml"
-                echo -e "${GREEN}✓ 密码认证已关闭${NC}"
-            else
-                echo -e "${YELLOW}密码认证未开启${NC}"
-            fi
-            if is_running; then
-                echo -e "${YELLOW}  ⚠️ 需要重启酒馆才能生效${NC}"
-            fi
-            ;;
-        3)
-            echo ""
-            if [ ! -f "$LAN_FLAG" ]; then
-                echo -e "${YELLOW}⚠️ 局域网未开启，无需随机端口${NC}"
-                printf "按回车返回..."
-                read -r _
-                return
-            fi
-
-            local NEW_PORT=$(random_port)
-            if grep -q "^port:" "$INSTALL_DIR/config.yaml" 2>/dev/null; then
-                sed -i "s/^port:.*/port: ${NEW_PORT}/" "$INSTALL_DIR/config.yaml"
-            else
-                echo "port: ${NEW_PORT}" >> "$INSTALL_DIR/config.yaml"
-            fi
-
-            echo -e "${GREEN}✓ 端口已更换为: ${NEW_PORT}${NC}"
-
-            if is_running; then
-                echo -e "${YELLOW}  ⚠️ 需要重启酒馆才能生效${NC}"
-            fi
-            ;;
-        0) return ;;
-        *) echo -e "${RED}无效选项${NC}" ;;
-    esac
-
-    echo ""
-    printf "按回车返回..."
-    read -r _
-}
-
-# ======================================
-# 菜单功能
-# ======================================
-fn_start() {
-    if ! check_installed; then
-        echo -e "${RED}未安装${NC}"
-        return
-    fi
-    if is_running; then
-        echo -e "${GREEN}已在运行${NC}"
-        print_access_url
-        return
-    fi
-
-    echo -e "${GREEN}启动中...${NC}"
-    cd "$INSTALL_DIR" || return
-    nohup bash start.sh > "$INSTALL_DIR/nohup.out" 2>&1 &
-
-    # ---- 轮询等待，最多 30 秒 ----
-    local waited=0
-    local max_wait=30
-    printf "${CYAN}等待进程就绪"
-    while [ "$waited" -lt "$max_wait" ]; do
-        if is_running; then
-            printf " ${GREEN}✓${NC}\n"
-            echo -e "${GREEN}✓ 已启动（耗时 ${waited}s）${NC}"
-            print_access_url
-            return
-        fi
-        printf "."
-        sleep 1
-        waited=$((waited + 1))
-    done
-
-    printf "\n"
-    # 超时了，给最后一次机会 + 打印日志线索
-    if is_running; then
-        echo -e "${GREEN}✓ 已启动${NC}"
-        print_access_url
-    else
-        echo -e "${RED}✗ 启动超时（${max_wait}s），可能失败${NC}"
-        echo -e "${YELLOW}💡 最近日志：${NC}"
-        tail -10 "$INSTALL_DIR/nohup.out" 2>/dev/null | sed 's/^/    /'
-    fi
-}
-
-fn_stop() {
-    pkill -f "node.*server.js" 2>/dev/null || true
-    sleep 1
-    pkill -9 -f "node.*server.js" 2>/dev/null || true
-    echo -e "${GREEN}✓ 已停止${NC}"
-}
-
-fn_restart() {
-    fn_stop
-    sleep 1
-    fn_start
-}
-
-# ======================================
 # 统一：Tag 选择
 # ======================================
 choose_tag() {
@@ -1276,7 +1390,6 @@ choose_tag() {
 
     [ ${#tags[@]} -eq 0 ] && return 1
 
-    # ⚠️ 所有提示走 stderr，避免被 $(...) 捕获
     {
         echo -e "${YELLOW}最近的 ${#tags[@]} 个版本号：${NC}"
         for i in "${!tags[@]}"; do
@@ -1293,7 +1406,7 @@ choose_tag() {
 
         if [[ "$IN" =~ ^[0-9]+$ ]]; then
             if [ "$IN" -ge 1 ] && [ "$IN" -le ${#tags[@]} ]; then
-                echo "${tags[$((IN-1))]}"      # ← 只有这行走 stdout
+                echo "${tags[$((IN-1))]}"
                 return 0
             else
                 echo -e "${RED}序号超出范围。${NC}" >&2
@@ -1301,7 +1414,7 @@ choose_tag() {
             fi
         else
             if git rev-parse -q --verify "refs/tags/$IN" >/dev/null 2>&1; then
-                echo "$IN"                     # ← 只有这行走 stdout
+                echo "$IN"
                 return 0
             else
                 echo -e "${RED}未找到名为 '$IN' 的 Tag。${NC}" >&2
@@ -1536,7 +1649,6 @@ do_backup() {
     echo -e "${CYAN}📦 正在创建备份 (${DESC})...${NC}"
     cd "$INSTALL_DIR" || return
 
-    # 过滤掉不存在的目标，避免 tar 报错
     local VALID_TARGETS=""
     for t in $TARGETS; do
         [ -e "$t" ] && VALID_TARGETS="$VALID_TARGETS $t"
@@ -1761,7 +1873,6 @@ fn_restore() {
     local FILES
     FILES=$(ls -1t "$BACKUP_DIR"/*.tar.gz 2>/dev/null || true)
 
-    # 也支持从共享存储导入
     local SHARED="/sdcard/Download/ST_Backups"
     local SHARED_FILES=""
     [ -d "$SHARED" ] && SHARED_FILES=$(ls -1t "$SHARED"/*.tar.gz 2>/dev/null)
@@ -1832,7 +1943,6 @@ fn_restore() {
     echo ""
     echo -e "${CYAN}已选择: $(basename "$FILE")${NC}"
 
-    # 优化：使用临时文件，仅解包一次
     local TMP_LIST
     TMP_LIST=$(mktemp)
 
@@ -1882,7 +1992,6 @@ fn_restore() {
 
     echo -e "${CYAN}📦 正在恢复...${NC}"
 
-    # 使用已经生成的文件列表判断备份内容，避免重复解包
     local HAS_DATA=0 HAS_CONFIG=0 HAS_EXT=0
     grep -q "^data/" "$TMP_LIST" && HAS_DATA=1
     grep -q "^config.yaml" "$TMP_LIST" && HAS_CONFIG=1
@@ -1895,7 +2004,6 @@ fn_restore() {
     if tar xzf "$FILE" 2>/dev/null; then
         echo -e "${GREEN}✅ 恢复完成${NC}"
 
-        # 恢复后清理
         echo -e "${CYAN}🧹 清理缓存...${NC}"
         rm -rf data/default-user/backups/*.jsonl 2>/dev/null
         rm -rf node_modules/.cache 2>/dev/null
@@ -1911,7 +2019,6 @@ fn_restore() {
         echo -e "${YELLOW}💡 可从自动备份恢复${NC}"
     fi
 
-    # 清理临时文件
     rm -f "$TMP_LIST"
 
     printf "按回车返回..."
@@ -1970,7 +2077,7 @@ if ! check_installed; then
 else
     setup_auto_menu
 
-    # 每次打开脚本时，默认关闭局域网
+    # 每次打开脚本时，默认关闭局域网（保留白名单设置）
     rm -f "$LAN_FLAG" 2>/dev/null
     if [ -f "$INSTALL_DIR/config.yaml" ]; then
         sed -i 's/^listen:.*/listen: false/' "$INSTALL_DIR/config.yaml" 2>/dev/null
