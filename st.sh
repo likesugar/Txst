@@ -25,6 +25,22 @@ is_running()      { pgrep -f "node.*server.js" >/dev/null 2>&1; }
 command_exists()  { command -v "$1" >/dev/null 2>&1; }
 
 # ======================================
+# 统一：读取 config.yaml 配置项
+# 用法: read_config_key <key> [indent]
+# ======================================
+read_config_key() {
+    local key="$1"
+    local indent="${2:-0}"
+    [ -f "$INSTALL_DIR/config.yaml" ] || { echo ""; return; }
+    
+    if [ "$indent" = "1" ]; then
+        grep "^[[:space:]]*${key}:" "$INSTALL_DIR/config.yaml" 2>/dev/null | awk '{print $2}' | tr -d '"'
+    else
+        grep "^${key}:" "$INSTALL_DIR/config.yaml" 2>/dev/null | awk '{print $2}' | tr -d '"'
+    fi
+}
+
+# ======================================
 # 统一：node_modules 瘦身
 # ======================================
 slim_node_modules() {
@@ -221,12 +237,8 @@ get_lan_ip() {
 
 # ---- 获取当前端口 ----
 get_current_port() {
-    if [ -f "$INSTALL_DIR/config.yaml" ]; then
-        local port=$(grep "^port:" "$INSTALL_DIR/config.yaml" 2>/dev/null | awk '{print $2}')
-        echo "${port:-8000}"
-    else
-        echo "8000"
-    fi
+    local port=$(read_config_key "port")
+    echo "${port:-8000}"
 }
 
 # ---- 获取密码状态 ----
@@ -235,7 +247,7 @@ get_password_status() {
         echo "未配置"
         return
     fi
-    local auth_mode=$(grep "^basicAuthMode:" "$INSTALL_DIR/config.yaml" 2>/dev/null | awk '{print $2}')
+    local auth_mode=$(read_config_key "basicAuthMode")
     if [ "$auth_mode" = "true" ]; then
         echo "开启"
     else
@@ -1011,9 +1023,9 @@ fn_set_password() {
     fi
     echo ""
 
-    local CURRENT_AUTH=$(grep "^basicAuthMode:" "$INSTALL_DIR/config.yaml" 2>/dev/null | awk '{print $2}')
-    local CURRENT_USER=$(grep "^  username:" "$INSTALL_DIR/config.yaml" 2>/dev/null | awk '{print $2}' | tr -d '"')
-    local CURRENT_PASS=$(grep "^  password:" "$INSTALL_DIR/config.yaml" 2>/dev/null | awk '{print $2}' | tr -d '"')
+    local CURRENT_AUTH=$(read_config_key "basicAuthMode")
+    local CURRENT_USER=$(read_config_key "username" 1)
+    local CURRENT_PASS=$(read_config_key "password" 1)
 
     echo -e "${YELLOW}📋 密码验证状态：${NC}"
     if [ "$CURRENT_AUTH" = "true" ] && [ -n "$CURRENT_USER" ] && [ "$CURRENT_USER" != '""' ]; then
@@ -1211,6 +1223,27 @@ choose_tag() {
         fi
     done
 }
+
+# ======================================
+# 统一：应用 Git Ref 并重装依赖
+# ======================================
+apply_ref_and_reinstall() {
+    local target_ref="$1"
+    local action_desc="$2"
+    local fail_msg="$3"
+
+    echo -e "${CYAN}正在${action_desc} ${target_ref} ...${NC}"
+    if git reset --hard "$target_ref" 2>/dev/null; then
+        echo -e "${GREEN}代码${action_desc}成功，正在更新依赖...${NC}"
+        clean_and_reinstall_deps --quiet --label "依赖" || return
+        echo -e "${GREEN}操作完成！${NC}"
+        printf "是否启动？[Y/n] "; read -r YN
+        [ "$YN" != "n" ] && [ "$YN" != "N" ] && fn_start
+    else
+        echo -e "${RED}${fail_msg}${NC}"
+    fi
+}
+
 # ---- 更新 ----
 fn_update() {
     if ! check_installed; then
@@ -1284,17 +1317,9 @@ fn_update() {
             ;;
     esac
 
-    echo -e "${CYAN}正在更新到 ${target_label} ...${NC}"
-    if git reset --hard "$target_ref" 2>/dev/null; then
-        echo -e "${GREEN}代码更新成功，正在更新依赖...${NC}"
-        clean_and_reinstall_deps --quiet --label "依赖" || return
-        echo -e "${GREEN}更新完成！${NC}"
-        printf "是否启动？[Y/n] "; read -r YN
-        [ "$YN" != "n" ] && [ "$YN" != "N" ] && fn_start
-    else
-        echo -e "${RED}更新失败，请检查网络或版本号是否正确。${NC}"
-    fi
+    apply_ref_and_reinstall "$target_ref" "更新到" "更新失败，请检查网络或版本号是否正确。"
 }
+
 fn_logs() {
     if ! check_installed; then echo -e "${RED}未安装${NC}"; return; fi
     echo -e "${CYAN}=== 最近 30 行 ===${NC}"
@@ -1345,16 +1370,7 @@ fn_rollback() {
             ;;
     esac
 
-    echo -e "${CYAN}正在切换到 $TARGET ...${NC}"
-    if git reset --hard "$TARGET" 2>/dev/null; then
-        echo -e "${GREEN}切换成功！正在重新安装依赖...${NC}"
-        clean_and_reinstall_deps --quiet --label "依赖" || return
-        echo -e "${GREEN}操作完成！${NC}"
-        printf "是否启动？[Y/n] "; read -r YN
-        [ "$YN" != "n" ] && [ "$YN" != "N" ] && fn_start
-    else
-        echo -e "${RED}切换失败，请检查输入是否正确。${NC}"
-    fi
+    apply_ref_and_reinstall "$TARGET" "切换到" "切换失败，请检查输入是否正确。"
 }
 
 # ======================================
@@ -1729,11 +1745,16 @@ fn_restore() {
     echo ""
     echo -e "${CYAN}已选择: $(basename "$FILE")${NC}"
 
-    # 查看备份内容
+    # 优化：使用临时文件，仅解包一次
+    local TMP_LIST
+    TMP_LIST=$(mktemp)
+
+    tar tzf "$FILE" > "$TMP_LIST" 2>/dev/null
+
     echo -e "${CYAN}📋 备份内容:${NC}"
-    tar tzf "$FILE" 2>/dev/null | head -n 15 | sed 's/^/    /'
+    head -n 15 "$TMP_LIST" | sed 's/^/    /'
     local total_items
-    total_items=$(tar tzf "$FILE" 2>/dev/null | wc -l)
+    total_items=$(wc -l < "$TMP_LIST")
     [ "$total_items" -gt 15 ] && echo -e "    ${YELLOW}... (共 ${total_items} 项)${NC}"
     echo ""
 
@@ -1760,9 +1781,9 @@ fn_restore() {
             echo -e "${YELLOW}⚠️ 将直接覆盖，当前数据不可恢复${NC}"
             printf "确认？[y/N] "
             read -r CF
-            [ "$CF" != "y" ] && [ "$CF" != "Y" ] && return
+            [ "$CF" != "y" ] && [ "$CF" != "Y" ] && { rm -f "$TMP_LIST"; return; }
             ;;
-        0|*) return ;;
+        0|*) rm -f "$TMP_LIST"; return ;;
     esac
 
     echo ""
@@ -1770,15 +1791,15 @@ fn_restore() {
     fn_stop 2>/dev/null || true
     sleep 1
 
-    cd "$INSTALL_DIR" || return
+    cd "$INSTALL_DIR" || { rm -f "$TMP_LIST"; return; }
 
     echo -e "${CYAN}📦 正在恢复...${NC}"
 
-    # 判断备份内容，决定清理哪些目录
+    # 使用已经生成的文件列表判断备份内容，避免重复解包
     local HAS_DATA=0 HAS_CONFIG=0 HAS_EXT=0
-    tar tzf "$FILE" 2>/dev/null | grep -q "^data/" && HAS_DATA=1
-    tar tzf "$FILE" 2>/dev/null | grep -q "^config.yaml" && HAS_CONFIG=1
-    tar tzf "$FILE" 2>/dev/null | grep -q "^public/scripts/extensions" && HAS_EXT=1
+    grep -q "^data/" "$TMP_LIST" && HAS_DATA=1
+    grep -q "^config.yaml" "$TMP_LIST" && HAS_CONFIG=1
+    grep -q "^public/scripts/extensions" "$TMP_LIST" && HAS_EXT=1
 
     [ "$HAS_DATA" = "1" ] && rm -rf data
     [ "$HAS_CONFIG" = "1" ] && rm -f config.yaml
@@ -1802,6 +1823,9 @@ fn_restore() {
         echo -e "${RED}✗ 恢复失败${NC}"
         echo -e "${YELLOW}💡 可从自动备份恢复${NC}"
     fi
+
+    # 清理临时文件
+    rm -f "$TMP_LIST"
 
     printf "按回车返回..."
     read -r _
