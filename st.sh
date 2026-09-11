@@ -194,23 +194,53 @@ toggle_whitelist_mode() {
 
 # ======================================
 # 统一：node_modules 瘦身
+# 保留：图片处理(jimp)、向量化、TTS，删除开发/构建/浏览器依赖
 # ======================================
 slim_node_modules() {
     local dir="${1:-$INSTALL_DIR/node_modules}"
     [ -d "$dir" ] || return 0
+
+    local before after
+    before=$(du -sm "$dir" 2>/dev/null | cut -f1)
+
+    # ---- 1) 文档 / 测试 / 示例（原有逻辑）----
     find "$dir" -type f \( \
         -name "README*" -o -name "CHANGELOG*" -o -name "LICENSE*" \
         -o -name "AUTHORS*" -o -name "*.md" -o -name "*.map" \
         -o -name ".travis.yml" -o -name ".eslintrc*" \
         -o -name ".prettierrc*" -o -name ".editorconfig" \) \
         -delete 2>/dev/null
+
     find "$dir" -type d \( \
         -name "test" -o -name "tests" -o -name "__tests__" \
         -o -name "docs" -o -name "examples" -o -name "benchmark" \
         -o -name ".github" -o -name ".circleci" \
         -o -name ".vscode" -o -name ".idea" \) \
         -exec rm -rf {} + 2>/dev/null
-    rm -rf "$dir/.cache" 2>/dev/null
+
+    rm -rf "$dir/.cache" "$dir/.bin" 2>/dev/null
+
+    # ---- 2) 纯开发 / 构建 / 类型（运行时无用）----
+    rm -rf \
+        "$dir/typescript" \
+        "$dir/esbuild" "$dir/@esbuild" \
+        "$dir/rollup" "$dir/rollup-"* "$dir/@rollup" \
+        "$dir/webpack" "$dir/webpack-"* "$dir/@webpack" \
+        "$dir/vite" "$dir/@vitejs" \
+        2>/dev/null
+
+    find "$dir" -type d -name "@types" -exec rm -rf {} + 2>/dev/null
+    find "$dir" -name "*.d.ts" -delete 2>/dev/null
+
+    # ---- 3) 无头浏览器（Termux 上跑不起来）----
+    rm -rf \
+        "$dir"/puppeteer* "$dir"/@puppeteer \
+        "$dir"/playwright* "$dir"/@playwright \
+        "$dir"/chromium* \
+        2>/dev/null
+
+    after=$(du -sm "$dir" 2>/dev/null | cut -f1)
+    echo -e "${GREEN}✓ node_modules: ${before}MB → ${after}MB${NC}"
 }
 
 # ======================================
