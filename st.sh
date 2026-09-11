@@ -70,6 +70,43 @@ clean_npm_cache() {
 }
 
 # ======================================
+# 统一：日志轮转（8MB，保留 2 份历史）
+# ======================================
+rotate_logs() {
+    local max_size=$((8 * 1024 * 1024))  # 8MB
+    local log_file="$INSTALL_DIR/nohup.out"
+    local max_backups=2                  # ← 这里 3 改成 2
+
+    [ -f "$log_file" ] || return 0
+
+    local current_size
+    current_size=$(stat -c '%s' "$log_file" 2>/dev/null || echo 0)
+
+    [ "$current_size" -lt "$max_size" ] && return 0
+
+    # 轮转：nohup.out → nohup.out.1 → nohup.out.2
+    local i=$max_backups
+    while [ $i -gt 1 ]; do
+        local prev=$((i - 1))
+        [ -f "${log_file}.${prev}" ] && mv -f "${log_file}.${prev}" "${log_file}.${i}" 2>/dev/null
+        i=$((i - 1))
+    done
+
+    mv -f "$log_file" "${log_file}.1" 2>/dev/null
+    : > "$log_file"
+
+    # 清理超过 max_backups 的旧日志
+    local j=$((max_backups + 1))
+    while [ -f "${log_file}.${j}" ]; do
+        rm -f "${log_file}.${j}" 2>/dev/null
+        j=$((j + 1))
+    done
+
+    echo -e "${CYAN}📜 日志已轮转（超过 8MB，保留 2 份）${NC}"
+}
+
+
+# ======================================
 # 统一：Foxium 下载
 # ======================================
 FOXIUM_URLS=(
@@ -1877,6 +1914,7 @@ setup_auto_menu() {
 if ! check_installed; then
     do_install
     setup_auto_menu
+    rotate_logs
     header
     show_menu
 else
@@ -1889,6 +1927,7 @@ else
         sed -i 's/^port:.*/port: 8000/' "$INSTALL_DIR/config.yaml" 2>/dev/null
     fi
 
+    rotate_logs
     header
     show_menu
 fi
@@ -1897,6 +1936,7 @@ fi
 while true; do
     printf "请输入选项 : "
     read -r CHOICE
+    rotate_logs
     case "$CHOICE" in
         1) fn_start;   header; show_menu ;;
         2) fn_stop;    header; show_menu ;;
