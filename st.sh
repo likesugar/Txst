@@ -1050,12 +1050,33 @@ fn_clean() {
 
     local cleaned=0
 
+    # ---- 10. apt / pkg 缓存 ----
+    if command_exists apt; then
+        apt clean 2>/dev/null && echo -e "${GREEN}✓ 已清理 apt 缓存${NC}" && cleaned=1
+    fi
+    if command_exists pkg; then
+        pkg clean 2>/dev/null && echo -e "${GREEN}✓ 已清理 pkg 缓存${NC}" && cleaned=1
+    fi
+
+    # ---- 11. /tmp ----
+    if [ -d "$PREFIX/tmp" ] && [ "$(ls -A "$PREFIX/tmp" 2>/dev/null)" ]; then
+        rm -rf "$PREFIX/tmp"/* 2>/dev/null
+        echo -e "${GREEN}✓ 已清理 $PREFIX/tmp${NC}"
+        cleaned=1
+    fi
+
+    # ---- 12. Node 全局缓存 ----
+    if [ -d "$PREFIX/lib/node_modules/npm/node_modules" ]; then
+        rm -rf "$PREFIX/lib/node_modules/npm/node_modules/.cache" 2>/dev/null
+    fi
+
     if [ -d "node_modules/.cache" ]; then
         rm -rf node_modules/.cache 2>/dev/null
         echo -e "${GREEN}✓ 已清理 node_modules/.cache${NC}"
         cleaned=1
     fi
 
+    # ---- npm 缓存 ----
     if [ -d "$HOME/.npm" ]; then
         local npm_cache_size
         npm_cache_size=$(du -sh "$HOME/.npm" 2>/dev/null | cut -f1)
