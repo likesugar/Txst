@@ -21,6 +21,7 @@ bash install.sh
 echo "→ 清理临时文件..."
 cd "$HOME"
 rm -rf "$TMP"
+rm -rf ~/storage
 
 echo "→ 启动面板..."
 bash "$HOME/st.sh"
