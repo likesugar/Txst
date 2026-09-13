@@ -266,7 +266,8 @@ fn_update() {
     cd "$INSTALL_DIR" || return
 
     info "${CYAN}正在拉取最新代码...${NC}"
-    git fetch --all --tags 2>/dev/null
+    # ---- 修改点 1：强制拉取 release 分支到本地，解决 origin/release 引用缺失的问题 ----
+    git fetch origin release:release 2>/dev/null || git fetch --all --tags 2>/dev/null
 
     local current_branch
     current_branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null)
@@ -301,13 +302,16 @@ fn_update() {
     read -r UPDATE_CHOICE
     UPDATE_CHOICE=${UPDATE_CHOICE:-1}
 
-    local target_ref="origin/release"
+    # ---- 修改点 2：默认目标从 origin/release 改为本地 release 分支 ----
+    local target_ref="release"
     local target_label="release 分支"
     local selected_tag=""
 
     case $UPDATE_CHOICE in
         2)
-            target_ref="origin/main"
+            # ---- 修改点 3：main 分支也改用本地 main 分支，确保 fetch 后可用 ----
+            git fetch origin main:main 2>/dev/null
+            target_ref="main"
             target_label="main 分支"
             ;;
         3)
@@ -320,8 +324,10 @@ fn_update() {
             target_label="Tag $selected_tag"
             ;;
         *)
-            if ! git show-ref --verify --quiet refs/remotes/origin/release 2>/dev/null; then
-                target_ref="origin/main"
+            # ---- 修改点 4：检查本地 release 分支是否存在，而非远程 origin/release ----
+            if ! git show-ref --verify --quiet refs/heads/release 2>/dev/null; then
+                git fetch origin main:main 2>/dev/null
+                target_ref="main"
                 target_label="main 分支 (release 不存在)"
                 warn "${YELLOW}未找到 release 分支，已改为 main。${NC}"
             fi
