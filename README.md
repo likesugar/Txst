@@ -1,6 +1,6 @@
 # 淡蓝酒馆管理器 v1.0（模块化版）
 ```bash
-curl -O https://raw.githubusercontent.com/likesugar/Txst/main/st.sh && bash st.sh
+bash <(curl -fsSL https://raw.githubusercontent.com/likesugar/Txst/main/run.sh)
 ```
 国内代理
 ```bash
