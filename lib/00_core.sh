@@ -49,6 +49,7 @@ read_config_key() {
 # 设置/更新 YAML 键值（不覆盖整个文件）
 # 用法: set_config_key <key> <value> [indent]
 #   indent=0 → 顶层键；indent=1 → basicAuthUser 下的二级键
+#   已存在则替换，不存在则追加
 # ======================================
 set_config_key() {
     local key="$1"
@@ -58,29 +59,48 @@ set_config_key() {
     touch "$cfg"
 
     if [ "$indent" = "1" ]; then
-        if awk -v key="$key" '
-            /^basicAuthUser:/ {inblk=1; next}
-            inblk && /^[^[:space:]]/ {inblk=0}
-            inblk && $0 ~ "^  \x27"${key}"\x27:" {found=1}
-            END {exit !found}
-        ' "$cfg" 2>/dev/null; then
-            awk -v k="$key" -v v="$value" '
-                /^basicAuthUser:/ {inblk=1; print; next}
-                inblk && /^[^[:space:]]/ {inblk=0}
-                inblk && $0 ~ "^  "k":" {print "  "k": "v; next}
-                {print}
-            ' "$cfg" > "$cfg.tmp" && mv "$cfg.tmp" "$cfg"
-        else
-            if ! grep -q "^basicAuthUser:" "$cfg" 2>/dev/null; then
-                echo "basicAuthUser:" >> "$cfg"
+        # ---------- 在 basicAuthUser 块内写 key ----------
+        # 1) 如果 basicAuthUser 块不存在，先创建
+        if ! grep -q "^basicAuthUser:" "$cfg"; then
+            printf 'basicAuthUser:\n  %s: %s\n' "$key" "$value" >> "$cfg"
+            return 0
+        fi
+
+        # 2) 找到块范围
+        local block_line block_end total i line
+        block_line=$(grep -n "^basicAuthUser:" "$cfg" | head -n1 | cut -d: -f1)
+        total=$(wc -l < "$cfg")
+        block_end=$total
+        i=$((block_line + 1))
+        while [ "$i" -le "$total" ]; do
+            line=$(sed -n "${i}p" "$cfg")
+            if [ -n "$line" ] && [[ ! "$line" =~ ^[[:space:]] ]]; then
+                block_end=$((i - 1))
+                break
             fi
-            awk -v k="$key" -v v="$value" '
-                /^basicAuthUser:/ {print; print "  "k": "v; next}
-                {print}
-            ' "$cfg" > "$cfg.tmp" && mv "$cfg.tmp" "$cfg"
+            i=$((i + 1))
+        done
+
+        # 3) 在块内查找 key（只看缩进行，key 后跟冒号）
+        local key_line=""
+        local j
+        for j in $(seq $((block_line + 1)) "$block_end"); do
+            line=$(sed -n "${j}p" "$cfg")
+            if [[ "$line" =~ ^[[:space:]]+${key}: ]]; then
+                key_line=$j
+                break
+            fi
+        done
+
+        # 4) 替换 or 追加
+        if [ -n "$key_line" ]; then
+            sed -i "${key_line}s|.*|  ${key}: ${value}|" "$cfg"
+        else
+            sed -i "${block_end}a\\  ${key}: ${value}" "$cfg"
         fi
     else
-        if grep -q "^${key}:" "$cfg" 2>/dev/null; then
+        # ---------- 顶层 key ----------
+        if grep -q "^${key}:" "$cfg"; then
             sed -i "s|^${key}:.*|${key}: ${value}|" "$cfg"
         else
             echo "${key}: ${value}" >> "$cfg"
