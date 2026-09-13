@@ -18,5 +18,9 @@ echo "→ 安装模块..."
 cd "$TMP"
 bash install.sh
 
+echo "→ 清理临时文件..."
+cd "$HOME"
+rm -rf "$TMP"
+
 echo "→ 启动面板..."
 bash "$HOME/st.sh"
