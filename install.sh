@@ -24,6 +24,8 @@ if ! grep -q "st.sh" "$HOME/.bashrc" 2>/dev/null; then
     printf '\n# 淡蓝酒馆自动菜单\n' >> "$HOME/.bashrc"
     printf 'if [ -f "$HOME/st.sh" ] && [[ $- == *i* ]]; then bash "$HOME/st.sh"; fi\n' >> "$HOME/.bashrc"
 fi
+# 4) 创建隐藏备份目录
+mkdir -p "$HOME/.STbackupF"
 
 echo "✅ 模块安装完成 → ~/st/lib"
 echo "   输入 st.sh 或重开 Termux 进入控制面板"
