@@ -68,7 +68,9 @@ do_install() {
     echo "[3/6] 配置 npm 加速..."
     npm config set registry https://registry.npmmirror.com 2>/dev/null
     ok "  ✓ npm → npmmirror"
-
+# 关闭 npm 更新提示（避免每次 npm 操作弹版本通知）
+grep -q "update-notifier=false" "$HOME/.npmrc" 2>/dev/null \
+    || echo "update-notifier=false" >> "$HOME/.npmrc"
     # ---- 4. 克隆酒馆 ----
     echo "[4/6] 下载 SillyTavern（国内多源自动切换）..."
     rm -rf "$INSTALL_DIR" 2>/dev/null
