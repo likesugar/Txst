@@ -345,15 +345,17 @@ fn_rollback() {
     printf "回退方式：${GREEN}[1]${NC} 指定 Tag  ${CYAN}[2]${NC} 指定 Commit  ${RED}[0]${NC} 取消: "
     read -r RB_CHOICE
 
+    # ⚠️【修复】先判断取消，提前返回，避免执行网络请求
+    if [ "$RB_CHOICE" = "0" ]; then
+        err "${RED}操作取消。${NC}"
+        return
+    fi
+
     cd "$INSTALL_DIR" || return
     git fetch --all --tags 2>/dev/null
 
     local TARGET=""
     case $RB_CHOICE in
-        0)
-            err "${RED}操作取消。${NC}"
-            return
-            ;;
         2)
             printf "请输入 Commit Hash: "
             read -r TARGET
