@@ -4,7 +4,7 @@ bash <(curl -fsSL https://raw.githubusercontent.com/likesugar/Txst/main/run.sh)
 ```
 国内代理
 ```bash
-curl -O https://gh-proxy.com/https://raw.githubusercontent.com/likesugar/Txst/main/st.sh && bash st.sh
+bash <(curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/likesugar/Txst/main/run.sh)
 ```
 ## 目录结构
 
