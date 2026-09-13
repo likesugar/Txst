@@ -266,9 +266,17 @@ fn_update() {
     cd "$INSTALL_DIR" || return
 
     info "${CYAN}正在拉取最新代码...${NC}"
-    # ---- 修改点 1：强制拉取 release 分支到本地，解决 origin/release 引用缺失的问题 ----
-    git fetch origin release:release 2>/dev/null || git fetch --all --tags 2>/dev/null
+# ---- 修改点：强制拉取 release 分支，并物理切换过去 ----
+git fetch origin release:release 2>/dev/null || git fetch --all --tags 2>/dev/null
 
+# 强制物理切换到 release 分支，解决面板一直显示 staging 的问题
+git checkout -f release 2>/dev/null
+
+# 如果切换失败（比如没拉下来），再切到 main
+if [ "$(git branch --show-current 2>/dev/null)" != "release" ]; then
+    git fetch origin main:main 2>/dev/null
+    git checkout -f main 2>/dev/null
+fi
     local current_branch
     current_branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null)
     if [ "$current_branch" == "HEAD" ]; then
