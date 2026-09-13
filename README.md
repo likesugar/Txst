@@ -1,10 +1,4 @@
-#     新自用· Termux 禁止使用
-国内源加速，无需梯子。
-
-## 一条命令安装
-
-打开 Termux，粘贴回车：
-
+# 淡蓝酒馆管理器 v1.0（模块化版）
 ```bash
 curl -O https://raw.githubusercontent.com/likesugar/Txst/main/st.sh && bash st.sh
 ```
@@ -12,28 +6,43 @@ curl -O https://raw.githubusercontent.com/likesugar/Txst/main/st.sh && bash st.s
 ```bash
 curl -O https://gh-proxy.com/https://raw.githubusercontent.com/likesugar/Txst/main/st.sh && bash st.sh
 ```
-## 功能
-
-首次运行自动安装，之后每次打开 Termux 进入控制面板：
+## 目录结构
 
 ```
-    ═══ 管理 ═══
-  [1] 启动  [2] 停止  [3] 重启
-  [4] 扩展管理  [5] 推荐配置
-
-  ═══ 维护 ═══
-  [6] 更新  [7] 日志  [8] 版本回退/切换
-  [9] 清理残余文件  [10]  Foxium 工具箱
-
-  ═══ 数据 ═══
-  [11] 备份  [12] 恢复  [13] 重装依赖
-
-  ═══ 局域网 ═══
-  [y] 开启  [n] 已关闭 [m] 密码验证: 未开启
-
-  ═══ 其他 ═══
-  [99] 卸载  [0] 退出
+st-manager/
+├── install.sh        # 安装器：把模块复制到 ~/st/lib，创建 ~/st.sh
+├── st.sh             # 启动器（加载模块并进入面板）
+└── lib/
+    ├── 00_core.sh         # 常量/颜色/工具函数/YAML读写/瘦身/日志轮转
+    ├── 10_service.sh      # 启动/停止/重启/日志/访问地址
+    ├── 20_install.sh      # 首次安装
+    ├── 30_deps.sh         # 重装依赖 (Fix npm)
+    ├── 40_config.sh       # 推荐配置/局域网/密码/白名单
+    ├── 50_extensions.sh   # 扩展管理
+    ├── 60_backup.sh       # 备份/恢复/导出
+    ├── 70_maintenance.sh  # 清理/更新/回退
+    ├── 80_foxium.sh       # Foxium 工具箱
+    ├── 90_uninstall.sh    # 系统级清除
+    └── 99_menu.sh         # 面板显示与主循环
 ```
+
+## 安装（Termux 中执行）
+
+```bash
+# 解压后进入本目录
+bash install.sh
+```
+
+安装后：重开 Termux 自动弹面板，或随时输入 `st.sh`。
+
+## 模块化说明
+
+- `st.sh` 按序号加载 `~/st/lib/*.sh`（00 核心最先、99 菜单最后）
+- 改某个功能只需编辑对应模块文件，不用再翻两千行大文件
+- 新增功能：在 lib/ 里加一个 `xx_功能.sh`，重跑 install.sh 即生效
+## 更新管理器
+
+以后改了模块，重新执行一次 `bash install.sh` 即可同步到 `~/st/lib`。
 ## Termux 保活
 
 玩酒馆期间 Termux 必须保持后台运行：
@@ -42,15 +51,3 @@ curl -O https://gh-proxy.com/https://raw.githubusercontent.com/likesugar/Txst/ma
 - 挂小窗模式
 - 系统设置 → 省电策略 → 无限制
 - 长按卡片 → 锁定
-
-## 数据目录
-
-用 MT 管理器授权 Termux 后：
-
-| 路径 | 说明 |
-|------|------|
-| `SillyTavern/data/default-user` | 用户数据（角色卡/聊天/设置） |
-| `SillyTavern_Backups` | 备份文件 |
-## 许可证
-
-MIT License
