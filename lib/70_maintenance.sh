@@ -350,6 +350,10 @@ fn_rollback() {
 
     local TARGET=""
     case $RB_CHOICE in
+        0)
+            err "${RED}操作取消。${NC}"
+            return
+            ;;
         2)
             printf "请输入 Commit Hash: "
             read -r TARGET
@@ -358,9 +362,13 @@ fn_rollback() {
                 return
             fi
             ;;
-        *)
+        1)
             TARGET=$(choose_tag) || { err "${RED}操作取消。${NC}"; return; }
             TARGET="tags/$TARGET"
+            ;;
+        *)
+            err "${RED}无效选项。${NC}"
+            return
             ;;
     esac
 
