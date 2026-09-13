@@ -1,0 +1,150 @@
+#!/data/data/com.termux/files/usr/bin/bash
+#==========================================================================
+#  50_extensions.sh — 扩展管理（内置扩展库 / 批量安装 / 自定义 URL）
+#==========================================================================
+
+fn_install_extension() {
+    if ! check_installed; then
+        err "${RED}未安装${NC}"
+        return
+    fi
+
+    EXT_URLS=(
+        "https://github.com/RT15548/LittleWhiteBox"
+        "https://github.com/zonde306/ST-Prompt-Template"
+        "https://github.com/uhhhh15/QR.git"
+        "https://github.com/N0VI028/JS-Slash-Runner"
+    )
+    EXT_NAMES=(LittleWhiteBox ST-Prompt-Template QR JS-Slash-Runner)
+    EXT_DISPLAYS=("🧰 小白盒" "📝 提示词模板" "🎯 快速回复" "🏃 脚本运行器")
+    EXT_BRANCHES=("" "" "" "")
+
+    echo ""
+    info "${CYAN}${BOLD}═══════ ⭐️ 扩展管理 ═══════${NC}"
+    echo ""
+    echo -e "  ${GREEN}[1]${NC} 🧰 小白盒 (LittleWhiteBox)"
+    echo -e "  ${GREEN}[2]${NC} 📝 提示词模板 (ST-Prompt-Template)"
+    echo -e "  ${GREEN}[3]${NC} 🎯 快速回复 (QR)"
+    echo -e "  ${GREEN}[4]${NC} 🏃 脚本运行器 (JS-Slash-Runner)"
+    echo -e "  ${YELLOW}[5]${NC} 全部安装（推荐组合）"
+    echo -e "  ${YELLOW}[6]${NC} 全部强制重装"
+    echo -e "  ${CYAN}[7]${NC} 自定义 Git URL 安装"
+    echo -e "  ${RED}[0]${NC} 返回"
+    echo ""
+    printf "选择: "
+    read -r EXT_CHOICE
+
+    case "$EXT_CHOICE" in
+        1|2|3|4)
+            local idx=$((EXT_CHOICE - 1))
+            install_one "${EXT_URLS[$idx]}" "${EXT_NAMES[$idx]}" "${EXT_DISPLAYS[$idx]}" "no" "${EXT_BRANCHES[$idx]}"
+            ;;
+        5)
+            for i in "${!EXT_URLS[@]}"; do
+                echo -e "${CYAN}--- 安装 [$((i+1))] ${EXT_DISPLAYS[$i]} ---${NC}"
+                install_one "${EXT_URLS[$i]}" "${EXT_NAMES[$i]}" "${EXT_DISPLAYS[$i]}" "no" "${EXT_BRANCHES[$i]}"
+            done
+            echo ""
+            ok "${GREEN}✅ 批量安装完成${NC}"
+            ;;
+        6)
+            for i in "${!EXT_URLS[@]}"; do
+                echo -e "${CYAN}--- 重装 [$((i+1))] ${EXT_DISPLAYS[$i]} ---${NC}"
+                install_one "${EXT_URLS[$i]}" "${EXT_NAMES[$i]}" "${EXT_DISPLAYS[$i]}" "yes" "${EXT_BRANCHES[$i]}"
+            done
+            echo ""
+            ok "${GREEN}✅ 批量重装完成${NC}"
+            ;;
+        7)
+            printf "请输入Git仓库URL: "
+            read -r CUSTOM_URL
+            if [ -z "$CUSTOM_URL" ]; then
+                warn "${YELLOW}取消安装${NC}"
+                return
+            fi
+            printf "请输入扩展名称(用于目录名): "
+            read -r CUSTOM_NAME
+            EXT_NAME="${CUSTOM_NAME:-custom-extension}"
+            EXT_DISPLAY="🌟 $CUSTOM_NAME"
+            install_one "$CUSTOM_URL" "$EXT_NAME" "$EXT_DISPLAY" "no" ""
+            ;;
+        0) return ;;
+        *) err "${RED}无效选项${NC}"; return ;;
+    esac
+
+    echo ""
+    pause
+}
+
+install_one() {
+    local repo="$1"
+    local name="$2"
+    local display="$3"
+    local force="$4"
+    local branch="$5"
+
+    local EXT_DIR="$INSTALL_DIR/public/scripts/extensions/third-party/$name"
+    if [ -d "$EXT_DIR" ]; then
+        if [ "$force" != "yes" ]; then
+            warn "${YELLOW}⚠️ 扩展已存在: $display${NC}"
+            printf "是否覆盖安装? [y/N]: "
+            read -r OVERWRITE
+            if [ "$OVERWRITE" != "y" ] && [ "$OVERWRITE" != "Y" ]; then
+                warn "${YELLOW}跳过 $display${NC}"
+                return 0
+            fi
+        fi
+        rm -rf "$EXT_DIR"
+    fi
+
+    mkdir -p "$INSTALL_DIR/public/scripts/extensions/third-party"
+    info "${CYAN}💙 安装 $display ...${NC}"
+    if [ -n "$branch" ]; then
+        echo -e "  ${CYAN}📌 指定分支/Tag: ${branch}${NC}"
+    fi
+
+    local cloned=0
+    local branch_args=()
+    [ -n "$branch" ] && branch_args=(--branch "$branch")
+
+    if [[ "$repo" =~ github\.com ]]; then
+        local repo_path="${repo#https://github.com/}"
+        [[ "$repo_path" == *.git ]] || repo_path="${repo_path}.git"
+        local PROXY_PREFIXES=(
+            "https://gh-proxy.com/https://github.com/"
+            "https://ghproxy.net/https://github.com/"
+            "https://ghfast.top/https://github.com/"
+        )
+        for PROXY in "${PROXY_PREFIXES[@]}"; do
+            local PROXY_URL="${PROXY}${repo_path}"
+            if git clone "$PROXY_URL" "$EXT_DIR" "${branch_args[@]}" --depth 1 2>/dev/null; then
+                if [ -n "$branch" ]; then
+                    ok "${GREEN}✅ 安装成功: $display (${branch})${NC}"
+                else
+                    ok "${GREEN}✅ 安装成功: $display${NC}"
+                fi
+                cloned=1
+                break
+            fi
+        done
+    else
+        echo -e "  ${CYAN}⏳ 正在下载...${NC}"
+        if git clone "$repo" "$EXT_DIR" "${branch_args[@]}" --depth 1 2>/dev/null; then
+            if [ -n "$branch" ]; then
+                ok "${GREEN}✅ 安装成功: $display (${branch})${NC}"
+            else
+                ok "${GREEN}✅ 安装成功: $display${NC}"
+            fi
+            cloned=1
+        fi
+    fi
+
+    if [ "$cloned" != "1" ]; then
+        err "${RED}❌ 安装失败: $display${NC}"
+        if [ -n "$branch" ]; then
+            warn "${YELLOW}💡 提示: 分支/Tag '${branch}' 可能不存在，请检查仓库${NC}"
+        fi
+        return 1
+    fi
+    return 0
+}

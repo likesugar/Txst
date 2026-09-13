@@ -323,4 +323,6 @@ clean_and_reinstall_deps() {
     fi
 
     ST_QUIET=0
-    log "${GREEN}✅ ${label}就绪
+    log "${GREEN}✅ ${label}就绪${NC}"
+    return 0
+}
