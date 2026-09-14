@@ -1,27 +1,26 @@
 #!/data/data/com.termux/files/usr/bin/bash
 #==========================================================================
-#  淡蓝酒馆 · Termux 管理器 v3.0（模块化版）启动器
-#  模块目录: ~/st/lib/  安装器: install.sh
+#  淡蓝酒馆 · 启动器
+#  职责：加载 ~/st/lib 下所有模块，进入主循环
+#  说明：使用 sort -V 排序，确保 10_menu.sh 排在 9_uninstall.sh 之后
 #==========================================================================
 
-ST_LIB="$HOME/st/lib"
-
-# 未安装时，支持从脚本所在目录就地运行
-if [ ! -d "$ST_LIB" ]; then
-    HERE="$(cd "$(dirname "$0")" 2>/dev/null && pwd)"
-    if [ -d "$HERE/lib" ]; then
-        ST_LIB="$HERE/lib"
-    else
-        echo "✗ 未找到模块目录 ~/st/lib，请先运行 install.sh"
-        exit 1
-    fi
+# ---- 定位模块目录 ----
+if [ -d "$HOME/st/lib" ]; then
+    LIB_DIR="$HOME/st/lib"
+elif [ -d "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib" ]; then
+    LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib"
+else
+    echo "错误：未找到模块目录 lib，请先运行 install.sh"
+    exit 1
 fi
 
-# 按文件名序号加载模块（00 核心必须最先，99 菜单最后）
-for _f in "$ST_LIB"/*.sh; do
-    # shellcheck disable=SC1090
-    . "$_f"
-done
-unset _f
+# ---- 按版本号顺序加载模块 ----
+while IFS= read -r module; do
+    [ -f "$module" ] || continue
+    # shellcheck source=/dev/null
+    source "$module"
+done < <(ls -1 "$LIB_DIR"/*.sh 2>/dev/null | sort -V)
 
-main "$@"
+# ---- 进入主循环 ----
+main_loop
