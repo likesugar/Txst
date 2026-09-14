@@ -47,8 +47,6 @@ done
 
 if [ "$CLONED" != "1" ]; then
     echo -e "${RED}✗ 下载失败，请检查网络${NC}"
-    echo -e "${YELLOW}💡 可手动执行：${NC}"
-    echo -e "  ${CYAN}git clone $REPO_MIRROR ~/.st-manager-tmp && bash ~/.st-manager-tmp/install.sh${NC}"
     exit 1
 fi
 
@@ -57,7 +55,8 @@ echo ""
 
 # ---- 执行安装 ----
 if [ ! -f "$TMP_DIR/install.sh" ]; then
-    echo -e "${RED}✗ 未找到 install.sh，仓库结构可能不正确${NC}"
+    echo -e "${RED}✗ 未找到 install.sh${NC}"
+    rm -rf "$TMP_DIR"
     exit 1
 fi
 
@@ -66,9 +65,10 @@ bash "$TMP_DIR/install.sh"
 # ---- 清理临时目录 ----
 rm -rf "$TMP_DIR"
 
-echo ""
-echo -e "${GREEN}${BOLD}✅ 部署完成！${NC}"
-echo ""
-echo -e "  ${CYAN}启动方式：${NC}"
-echo -e "    ${GREEN}bash ~/st.sh${NC}   （或重开 Termux 自动弹出）"
-echo ""
+# ---- 启动控制面板 ----
+if [ -f "$HOME/st.sh" ]; then
+    echo ""
+    echo -e "${CYAN}正在启动控制面板...${NC}"
+    sleep 1
+    bash "$HOME/st.sh"
+fi

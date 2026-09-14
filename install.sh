@@ -156,3 +156,10 @@ echo ""
 echo -e "  ${CYAN}模块目录：${NC}"
 echo -e "    ${YELLOW}$LIB_DIR${NC}"
 echo ""
+echo -e "${CYAN}正在启动控制面板...${NC}"
+sleep 1
+
+# 自动进入面板
+if [ -f "$LAUNCHER" ]; then
+    bash "$LAUNCHER"
+fi
