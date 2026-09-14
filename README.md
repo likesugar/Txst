@@ -2,9 +2,9 @@
 ```bash
 bash <(curl -sL https://gh-proxy.com/https://raw.githubusercontent.com/likesugar/Txst/main/deploy.sh)
 ```
-国内代理
+国内代理，单文件
 ```bash
-bash <(curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/likesugar/Txst/main/run.sh)
+curl -O https://gh-proxy.com/https://raw.githubusercontent.com/likesugar/Txst/main/st单文件.sh && bash st单文件.sh
 ```
 ## 目录结构
 
