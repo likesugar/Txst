@@ -18,7 +18,12 @@ if [ -t 1 ]; then
 else
     RED=''; GREEN=''; YELLOW=''; CYAN=''; BOLD=''; NC=''
 fi
-
+# ---- 输出辅助函数 ----
+info()    { echo -e "${CYAN}$*${NC}"; }
+success() { echo -e "${GREEN}$*${NC}"; }
+warn()    { echo -e "${YELLOW}$*${NC}"; }
+err()     { echo -e "${RED}$*${NC}" >&2; }
+ok()      { echo -e "${GREEN}$*${NC}"; }
 echo -e "${CYAN}${BOLD}"
 echo "  ╔══════════════════════════════════════╗"
 echo "  ║      淡蓝酒馆 · 安装器               ║"
