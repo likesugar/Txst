@@ -9,23 +9,35 @@ curl -O https://gh-proxy.com/https://raw.githubusercontent.com/likesugar/Txst/ma
 ## 目录结构
 
 ```
-st-manager/
-├── install.sh        # 安装器：把模块复制到 ~/st/lib，创建 ~/st.sh
-├── st.sh             # 启动器（加载模块并进入面板）
-└── lib/
-    ├── 00_core.sh         # 常量/颜色/工具函数/YAML读写/瘦身/日志轮转
-    ├── 10_service.sh      # 启动/停止/重启/日志/访问地址
-    ├── 20_install.sh      # 首次安装
-    ├── 30_deps.sh         # 重装依赖 (Fix npm)
-    ├── 40_config.sh       # 推荐配置/局域网/密码/白名单
-    ├── 50_extensions.sh   # 扩展管理
-    ├── 60_backup.sh       # 备份/恢复/导出
-    ├── 70_maintenance.sh  # 清理/更新/回退
-    ├── 80_foxium.sh       # Foxium 工具箱
-    ├── 90_uninstall.sh    # 系统级清除
-    └── 99_menu.sh         # 面板显示与主循环
+~/
+├── st.sh                          # 启动器（install.sh 创建）
+├── st/
+│   └── lib/                       # 模块目录（install.sh 复制）
+│       ├── 0_core.sh
+│       ├── 1_service.sh
+│       ├── 2_install.sh
+│       ├── 3_deps.sh
+│       ├── 4_config.sh
+│       ├── 5_extensions.sh
+│       ├── 6_backup.sh
+│       ├── 7_maintenance.sh
+│       ├── 8_foxium.sh
+│       ├── 9_uninstall.sh
+│       └── 10_menu.sh
+├── storage/                       # Termux 存储权限目录
+│   └── shared/（软链接）
+│       └── Download/
+│           └── ST_Backups/        # 备份导出位置
+├── SillyTavern/                   # 酒馆本体
+├── SillyTavern_Backups/           # 备份目录
+└── .bashrc                        # 自动菜单入口
 ```
-
+```
+💡 关于 ~/storage/shared
+首次安装会检测该目录是否存在。若不存在，会引导执行 termux-setup-storage 申请存储权限。
+授权后 ~/storage/shared/ 即为手机内部存储的软链接，可访问 /sdcard/。
+备份导出功能会将 .tar.gz 复制到 ~/storage/shared/Download/ST_Backups/。
+```
 ## 安装（Termux 中执行）
 
 ```bash
@@ -37,9 +49,9 @@ bash install.sh
 
 ## 模块化说明
 
-- `st.sh` 按序号加载 `~/st/lib/*.sh`（00 核心最先、99 菜单最后）
-- 改某个功能只需编辑对应模块文件，不用再翻两千行大文件
-- 新增功能：在 lib/ 里加一个 `xx_功能.sh`，重跑 install.sh 即生效
+· st.sh 按序号加载 ~/st/lib/*.sh（0 核心最先、10 菜单最后）
+· 改某个功能只需编辑对应模块文件，不用再翻两千行大文件
+· 新增功能：在 lib/ 里加一个 xx_功能.sh，重跑 install.sh 即生效
 ## 更新管理器
 
 以后改了模块，重新执行一次 `bash install.sh` 即可同步到 `~/st/lib`。
