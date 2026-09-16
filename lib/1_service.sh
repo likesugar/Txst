@@ -86,7 +86,18 @@ get_lan_ip() {
         echo ""
         return
     fi
-    $ifconfig_cmd 2>/dev/null | grep -E "inet " | grep -v "127.0.0.1" | grep -E "192\.168|10\." | awk '{print $2}' | head -1
+
+    # ---- 优先 192.168 ----
+    local ip
+    ip=$($ifconfig_cmd 2>/dev/null | grep -E "inet " | grep -v "127.0.0.1" | grep "192\.168" | awk '{print $2}' | head -1)
+    [ -n "$ip" ] && { echo "$ip"; return; }
+
+    # ---- 其次 10. ----
+    ip=$($ifconfig_cmd 2>/dev/null | grep -E "inet " | grep -v "127.0.0.1" | grep -E "^[[:space:]]*inet 10\." | awk '{print $2}' | head -1)
+    [ -n "$ip" ] && { echo "$ip"; return; }
+
+    # ---- 最后任意非回环 ----
+    $ifconfig_cmd 2>/dev/null | grep -E "inet " | grep -v "127.0.0.1" | awk '{print $2}' | head -1
 }
 
 # ======================================

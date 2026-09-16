@@ -70,6 +70,13 @@ setup_auto_menu() {
 init() {
     setup_auto_menu
     rm -f "$LAN_FLAG" 2>/dev/null
+
+    # ---- 关闭局域网（改 config.yaml）----
+    if [ -f "$INSTALL_DIR/config.yaml" ]; then
+        set_config_key "listen" "false"
+        set_config_key "port" "8000"
+    fi
+
     rotate_logs
     header
     show_menu

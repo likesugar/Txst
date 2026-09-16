@@ -199,7 +199,8 @@ toggle_whitelist_mode() {
 
 # ======================================
 # 统一：node_modules 瘦身
-# 保留：图片处理(jimp)、向量化、TTS，删除开发/构建/浏览器依赖
+# 保留：jimp、sharp、axios、dotenv 等运行时依赖
+# 删除：文档/测试/构建/浏览器/桌面/OCR/PDF/TTS
 # ======================================
 slim_node_modules() {
     local dir="${1:-$INSTALL_DIR/node_modules}"
@@ -242,6 +243,39 @@ slim_node_modules() {
         "$dir"/puppeteer* "$dir"/@puppeteer \
         "$dir"/playwright* "$dir"/@playwright \
         "$dir"/chromium* \
+        2>/dev/null
+
+    # ---- 4) 桌面 / 开发工具（Termux 上跑不起来）----
+    rm -rf \
+        "$dir/electron" \
+        "$dir/nodemon" \
+        "$dir/pm2" \
+        "$dir/concurrently" \
+        "$dir/cross-env" \
+        "$dir/rimraf" \
+        "$dir/husky" \
+        "$dir/lint-staged" \
+        "$dir/node-gyp" \
+        2>/dev/null
+
+    # ---- 5) OCR / PDF（不用可删）----
+    rm -rf \
+        "$dir/pdfjs-dist" \
+        "$dir/tesseract.js" \
+        "$dir/tesseract.js-core" \
+        2>/dev/null
+
+    # ---- 6) TTS / 语音（不用可删）----
+    rm -rf \
+        "$dir/edge-tts" \
+        "$dir/node-edge-tts" \
+        "$dir/@andresaya/edge-tts" \
+        2>/dev/null
+
+    # ---- 7) 无用顶层文件 ----
+    rm -rf \
+        "$dir/.package-lock.json" \
+        "$dir/.yarn-integrity" \
         2>/dev/null
 
     after=$(du -sm "$dir" 2>/dev/null | cut -f1)
