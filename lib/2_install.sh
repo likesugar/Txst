@@ -1,67 +1,32 @@
 #!/data/data/com.termux/files/usr/bin/bash
 #==========================================================================
-#  模块 2 · 首次安装 / 酒馆安装
-#  职责：环境配置（首次）+ 酒馆安装（按 [4]）
-#  依赖：0_core.sh（常量/颜色/工具函数）、1_service.sh（启动）、3_deps.sh（依赖安装）
+#  淡蓝酒馆 · 安装器
 #==========================================================================
 
-# ======================================
-# 菜单入口：安装 / 重装酒馆
-# ======================================
-fn_install_tavern() {
-    if check_installed; then
-        echo ""
-        echo -e "${YELLOW}⚠️ SillyTavern 已安装${NC}"
-        echo ""
-        echo -e "  ${CYAN}请选择：${NC}"
-        echo -e "    ${GREEN}[9]${NC}  更新到最新版本"
-        echo -e "    ${YELLOW}[99] → [2]${NC}  卸载后重新安装"
-        echo ""
-        printf "按回车返回..."
-        read -r _
-        return
-    fi
+set -e
 
-    # ---- 环境缺失 → 先装环境（静默），再装酒馆 ----
-    if ! command_exists git || ! command_exists node || ! command_exists npm; then
-        echo ""
-        echo -e "${YELLOW}⚠️ 运行环境不完整，将先配置环境再安装酒馆${NC}"
-        echo ""
-        sleep 1
+SCRIPT_DIR="${TMP_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
+ST_HOME="$HOME/st"
+LIB_DIR="$ST_HOME/lib"
+LAUNCHER="$HOME/st.sh"
 
-        DO_INSTALL_NO_PAUSE=1 do_install || return 1
-        unset DO_INSTALL_NO_PAUSE
+if [ -t 1 ]; then
+    RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
+    CYAN='\033[0;36m'; BOLD='\033[1m'; NC='\033[0m'
+else
+    RED=''; GREEN=''; YELLOW=''; CYAN=''; BOLD=''; NC=''
+fi
 
-        echo ""
-        echo -e "${CYAN}环境配置完成，继续安装 SillyTavern...${NC}"
-        sleep 1
-        install_tavern_only
-        return
-    fi
-
-    # ---- 环境齐全 → 直接装酒馆 ----
-    install_tavern_only
-}
+echo -e "${CYAN}${BOLD}"
+echo "  ╔══════════════════════════════════════╗"
+echo "  ║      淡蓝酒馆 · 安装器               ║"
+echo "  ╚══════════════════════════════════════╝"
+echo -e "${NC}"
 
 # ======================================
-# 仅安装酒馆本体
+# 1. 存储权限
 # ======================================
-install_tavern_only() {
-    # ---- 环境检查 ----
-    local missing=()
-    command_exists git  || missing+=("git")
-    command_exists node || missing+=("nodejs-lts")
-    command_exists npm  || missing+=("npm")
-
-    if [ ${#missing[@]} -gt 0 ]; then
-        echo -e "${RED}✗ 缺少运行环境：${missing[*]}${NC}"
-        echo -e "${YELLOW}请先执行完整安装补齐环境${NC}"
-        printf "按回车返回..."
-        read -r _
-        return 1
-    fi
-
-    # ---- 存储权限检查 ----
+check_storage() {
     local STORAGE_DIR="$HOME/storage/shared"
     if [ ! -d "$STORAGE_DIR" ]; then
         echo -e "${YELLOW}⚠️ 未检测到存储权限${NC}"
@@ -72,188 +37,157 @@ install_tavern_only() {
                 termux-setup-storage
                 local WAIT=0
                 while [ ! -d "$STORAGE_DIR" ] && [ $WAIT -lt 10 ]; do
-                    sleep 1
-                    WAIT=$((WAIT + 1))
+                    sleep 1; WAIT=$((WAIT + 1))
                 done
-                [ ! -d "$STORAGE_DIR" ] && { echo -e "${RED}✗ 授权超时${NC}"; return 1; }
+                [ ! -d "$STORAGE_DIR" ] && { echo -e "${RED}✗ 授权超时${NC}"; exit 1; }
+                echo -e "${GREEN}✓ 存储权限已获取${NC}"
                 ;;
-            *) echo -e "${RED}✗ 未授权，退出${NC}"; return 1 ;;
-        esac
-    fi
-
-    # ---- 已存在检查 ----
-    if [ -d "$INSTALL_DIR" ]; then
-        echo -e "${YELLOW}⚠️ $INSTALL_DIR 已存在${NC}"
-        printf "是否删除并重新安装？[y/N]: "
-        read -r CF
-        [ "$CF" != "y" ] && [ "$CF" != "Y" ] && return 0
-        fn_stop 2>/dev/null || true
-        rm -rf "$INSTALL_DIR"
-        echo -e "${GREEN}✓ 已删除旧版本${NC}"
-    fi
-
-    echo ""
-    echo -e "${CYAN}${BOLD}═══════ 📦 安装 SillyTavern ═══════${NC}"
-    echo ""
-
-    # ---- [1/3] 克隆源码 ----
-    echo "[1/3] 下载酒馆源码..."
-    cd ~ || return 1
-    local MIRRORS=(
-        "https://gh-proxy.com/https://github.com/SillyTavern/SillyTavern"
-        "https://gh.xiu2.xyz/https://github.com/SillyTavern/SillyTavern"
-        "https://github.com/SillyTavern/SillyTavern"
-    )
-    local OK=0
-    local URL
-    for URL in "${MIRRORS[@]}"; do
-        echo "  → $URL"
-        if git clone "$URL" -b release "$INSTALL_DIR" --depth 1 2>/dev/null; then
-            echo "  ✓ release 分支"; OK=1; break
-        fi
-        if git clone "$URL" -b staging "$INSTALL_DIR" --depth 1 2>/dev/null; then
-            echo "  ✓ staging 分支"; OK=1; break
-        fi
-    done
-    if [ "$OK" != "1" ]; then
-        echo -e "${RED}  ✗ 克隆失败，请检查网络${NC}"
-        printf "按回车返回..."
-        read -r _
-        return 1
-    fi
-    cd "$INSTALL_DIR" || return 1
-    git remote set-url origin https://github.com/SillyTavern/SillyTavern 2>/dev/null || true
-
-    # ---- [2/3] 装依赖 ----
-    echo "[2/3] 安装依赖（约 1-2 分钟）..."
-    clean_and_reinstall_deps --clean-cache --label "依赖" || return 1
-
-    # ---- [3/3] 瘦身 ----
-    echo "[3/3] 瘦身..."
-    cd "$INSTALL_DIR" || return 1
-    rm -rf "$HOME/.npm" 2>/dev/null
-    rm -f .*.tmp .*.swp .*.swo .*~ *~ 2>/dev/null
-    slim_git_node
-
-    mkdir -p "$BACKUP_DIR"
-
-    echo ""
-    echo -e "${GREEN}${BOLD}✅ SillyTavern 安装完成！${NC}"
-    echo ""
-    echo -e "${CYAN}💡 按 [1] 启动酒馆${NC}"
-    echo -e "${CYAN}💡 按 [6] 应用推荐配置${NC}"
-    echo -e "${CYAN}💡 按 [y] 开启局域网访问${NC}"
-    echo ""
-    printf "按回车返回..."
-    read -r _
-}
-
-# ======================================
-# 首次环境配置（不装酒馆）
-# 说明：
-#   - 默认：装完提示"按回车返回"
-#   - 被 fn_install_tavern 调用时：设置 DO_INSTALL_NO_PAUSE=1，装完直接返回
-# ======================================
-do_install() {
-    local STORAGE_DIR="$HOME/storage/shared"
-
-    # ---- 存储权限检查 ----
-    if [ ! -d "$STORAGE_DIR" ]; then
-        clear
-        echo -e "${YELLOW}⚠️ 未检测到存储权限（目录 $STORAGE_DIR 不存在）${NC}"
-        echo -e "${YELLOW}   Termux 需要访问外部存储才能保存角色卡、聊天记录等数据。${NC}"
-        echo ""
-        echo -e "  是否现在运行 ${CYAN}termux-setup-storage${NC} 授权？"
-        echo -e "  （会弹出系统权限请求，请点击\"允许\"）"
-        printf "  输入 ${GREEN}[y]${NC} 立即授权，${RED}[n]${NC} 退出安装: "
-        read -r PERM_CHOICE
-
-        case "$PERM_CHOICE" in
-            y|Y)
-                echo -e "${CYAN}正在请求存储权限...${NC}"
-                termux-setup-storage
-                echo -e "${CYAN}等待授权完成（最多10秒）...${NC}"
-                local WAIT=0
-                while [ ! -d "$STORAGE_DIR" ] && [ $WAIT -lt 10 ]; do
-                    sleep 1
-                    WAIT=$((WAIT + 1))
-                done
-                if [ ! -d "$STORAGE_DIR" ]; then
-                    echo -e "${RED}✗ 授权超时或未成功，请手动运行 termux-setup-storage 后重试。${NC}"
-                    return 1
-                else
-                    echo -e "${GREEN}✓ 存储权限已获取${NC}"
-                fi
-                ;;
-            *)
-                echo -e "${RED}✗ 未授权存储权限，无法继续安装。${NC}"
-                echo -e "${YELLOW}请稍后手动运行 termux-setup-storage，再重新执行本脚本。${NC}"
-                return 1
-                ;;
+            *) echo -e "${RED}✗ 未授权，退出${NC}"; exit 1 ;;
         esac
     else
         echo -e "${GREEN}✓ 存储权限已就绪${NC}"
     fi
+}
 
-    clear
-    echo "   淡蓝酒馆 · 环境配置"
-    echo "  ========================"
+# ======================================
+# 2. 确保运行环境（关键：已装则跳过）
+# ======================================
+ensure_runtime() {
+    echo ""
+    echo -e "${CYAN}[1/4] 检查运行环境...${NC}"
+
+    # ---- 核心：已装则跳过 ----
+    if command -v git >/dev/null 2>&1 && \
+       command -v node >/dev/null 2>&1 && \
+       command -v npm >/dev/null 2>&1; then
+        echo -e "${GREEN}✓ 运行环境已就绪（Node.js $(node -v)）${NC}"
+        return 0
+    fi
+
+    # ---- 未装则装 ----
+    echo -e "${YELLOW}未检测到完整运行环境，正在安装...${NC}"
+    echo -e "${CYAN}（约 1-2 分钟）${NC}"
     echo ""
 
-    # ---- [1/4] 配置国内镜像 ----
-    echo "[1/4] 配置国内镜像..."
     if [ -f "$PREFIX/etc/apt/sources.list" ]; then
         cp "$PREFIX/etc/apt/sources.list" "$PREFIX/etc/apt/sources.list.bak" 2>/dev/null || true
         sed -i 's@packages.termux.dev@mirrors.tuna.tsinghua.edu.cn/termux@' "$PREFIX/etc/apt/sources.list" 2>/dev/null || true
     fi
     pkg update -y 2>/dev/null || pkg update -y
-    echo "  ✓ Termux → 清华镜像"
-
-    # ---- [2/4] 安装运行环境 ----
-    echo "[2/4] 安装运行环境..."
     pkg install -y git nodejs-lts net-tools 2>&1 | tail -5
 
-    # 独立验证
+    # ---- 独立验证 ----
     local missing=()
-    command_exists git  || missing+=("git")
-    command_exists node || missing+=("nodejs-lts")
-    command_exists npm  || missing+=("npm")
+    command -v git  >/dev/null 2>&1 || missing+=("git")
+    command -v node >/dev/null 2>&1 || missing+=("nodejs-lts")
+    command -v npm  >/dev/null 2>&1 || missing+=("npm")
 
     if [ ${#missing[@]} -gt 0 ]; then
         echo -e "${RED}✗ 环境安装失败，缺少：${missing[*]}${NC}"
         echo -e "${YELLOW}请手动执行：pkg install -y git nodejs-lts net-tools${NC}"
-        printf "按回车返回..."
-        read -r _
-        return 1
+        exit 1
     fi
 
-    echo "  ✓ Node.js $(node -v)"
-    echo "  ✓ ifconfig 已安装"
-
-    # ---- [3/4] 配置 npm 加速 ----
-    echo "[3/4] 配置 npm 加速..."
-    npm config set registry https://registry.npmmirror.com
-    export NPM_CONFIG_REGISTRY=https://registry.npmmirror.com
-    export NODE_OPTIONS="--max-old-space-size=512"
-    echo "  ✓ npm → 淘宝镜像"
-
-    # ---- [4/4] git / node 瘦身 ----
-    echo "[4/4] git / node 瘦身..."
-    slim_git_node
-
-    echo ""
-    echo "  ╔══════════════════════════════════════╗"
-    echo "  ║    环境配置完成！                 ║"
-    echo "  ╚══════════════════════════════════════╝"
-    echo ""
-
-    if [ "${DO_INSTALL_NO_PAUSE:-0}" = "1" ]; then
-        return 0
-    fi
-
-    echo -e "  ${YELLOW}💡 下一步：按 [4] 安装 SillyTavern${NC}"
-    echo -e "  ${CYAN}💡 安装完成后再按 [1] 启动${NC}"
-    echo ""
-    printf "按回车返回菜单..."
-    read -r _
+    echo -e "${GREEN}✓ 运行环境安装完成${NC}"
+    echo -e "    Node.js $(node -v)"
+    echo -e "    npm $(npm -v)"
 }
+
+# ======================================
+# 3. 复制模块
+# ======================================
+install_modules() {
+    echo ""
+    echo -e "${CYAN}[2/4] 安装模块到 $LIB_DIR ...${NC}"
+
+    mkdir -p "$LIB_DIR"
+
+    local SRC_LIB=""
+    if [ -d "$SCRIPT_DIR/lib" ]; then
+        SRC_LIB="$SCRIPT_DIR/lib"
+    elif [ -d "$SCRIPT_DIR" ] && ls "$SCRIPT_DIR"/*_*.sh >/dev/null 2>&1; then
+        SRC_LIB="$SCRIPT_DIR"
+    else
+        echo -e "${RED}✗ 未找到模块目录${NC}"
+        echo -e "${YELLOW}  SCRIPT_DIR = $SCRIPT_DIR${NC}"
+        exit 1
+    fi
+
+    echo -e "  源目录：${CYAN}$SRC_LIB${NC}"
+
+    if [ "$SRC_LIB" = "$LIB_DIR" ]; then
+        echo -e "  ${YELLOW}源目录与目标目录相同，跳过复制${NC}"
+    else
+        cp -f "$SRC_LIB"/*.sh "$LIB_DIR/" 2>/dev/null || true
+    fi
+
+    chmod +x "$LIB_DIR/"*.sh 2>/dev/null || true
+
+    echo -e "${GREEN}✓ 已安装模块：${NC}"
+    ls -1 "$LIB_DIR" | sort -V | sed 's/^/    /'
+}
+
+# ======================================
+# 4. 创建启动器
+# ======================================
+create_launcher() {
+    echo ""
+    echo -e "${CYAN}[3/4] 创建启动器 $LAUNCHER ...${NC}"
+
+    cat > "$LAUNCHER" << 'LAUNCHER_EOF'
+#!/data/data/com.termux/files/usr/bin/bash
+ST_HOME="$HOME/st"
+LIB_DIR="$ST_HOME/lib"
+[ ! -d "$LIB_DIR" ] && { echo "错误：未找到 $LIB_DIR"; exit 1; }
+while IFS= read -r module; do
+    [ -f "$module" ] || continue
+    source "$module"
+done < <(ls -1 "$LIB_DIR"/*.sh 2>/dev/null | sort -V)
+main_loop
+LAUNCHER_EOF
+
+    chmod +x "$LAUNCHER"
+    echo -e "${GREEN}✓ 启动器已创建${NC}"
+}
+
+# ======================================
+# 5. 自动菜单
+# ======================================
+setup_auto_menu() {
+    echo ""
+    echo -e "${CYAN}[4/4] 配置 Termux 自动菜单 ...${NC}"
+    if ! grep -q "st.sh" "$HOME/.bashrc" 2>/dev/null; then
+        {
+            echo ""
+            echo '# 淡蓝酒馆自动菜单'
+            echo 'if [ -f "$HOME/st.sh" ] && [[ $- == *i* ]]; then bash "$HOME/st.sh"; fi'
+        } >> "$HOME/.bashrc"
+        echo -e "${GREEN}✓ 已写入 ~/.bashrc${NC}"
+    else
+        echo -e "${YELLOW}  已存在自动菜单配置，跳过${NC}"
+    fi
+}
+
+# ======================================
+# 主流程
+# ======================================
+check_storage
+ensure_runtime
+install_modules
+create_launcher
+setup_auto_menu
+
+echo ""
+echo -e "${GREEN}${BOLD}✅ 安装完成！${NC}"
+echo ""
+echo -e "  ${CYAN}启动方式：${NC}"
+echo -e "    ${GREEN}bash ~/st.sh${NC}   （或重开 Termux 自动弹出）"
+echo ""
+echo -e "${CYAN}正在启动控制面板...${NC}"
+sleep 1
+
+if [ -f "$LAUNCHER" ]; then
+    bash "$LAUNCHER"
+else
+    echo -e "${RED}✗ 启动器不存在，请手动运行 bash ~/st.sh${NC}"
+fi
