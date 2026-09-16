@@ -29,7 +29,8 @@ fn_install_tavern() {
         echo ""
         sleep 1
 
-        do_install || return 1
+        DO_INSTALL_NO_PAUSE=1 do_install || return 1
+        unset DO_INSTALL_NO_PAUSE
 
         echo ""
         echo -e "${CYAN}环境配置完成，继续安装 SillyTavern...${NC}"
@@ -46,7 +47,6 @@ fn_install_tavern() {
 # 仅安装酒馆本体
 # ======================================
 install_tavern_only() {
-    # ---- 环境检查（缺了就给提示，不自动装）----
     local missing=()
     command_exists git  || missing+=("git")
     command_exists node || missing+=("nodejs-lts")
@@ -60,7 +60,6 @@ install_tavern_only() {
         return 1
     fi
 
-    # ---- 存储权限检查 ----
     local STORAGE_DIR="$HOME/storage/shared"
     if [ ! -d "$STORAGE_DIR" ]; then
         echo -e "${YELLOW}⚠️ 未检测到存储权限${NC}"
@@ -80,7 +79,6 @@ install_tavern_only() {
         esac
     fi
 
-    # ---- 已存在检查 ----
     if [ -d "$INSTALL_DIR" ]; then
         echo -e "${YELLOW}⚠️ $INSTALL_DIR 已存在${NC}"
         printf "是否删除并重新安装？[y/N]: "
@@ -95,7 +93,6 @@ install_tavern_only() {
     echo -e "${CYAN}${BOLD}═══════ 📦 安装 SillyTavern ═══════${NC}"
     echo ""
 
-    # ---- [1/3] 克隆源码 ----
     echo "[1/3] 下载酒馆源码..."
     cd ~ || return 1
     local MIRRORS=(
@@ -123,11 +120,9 @@ install_tavern_only() {
     cd "$INSTALL_DIR" || return 1
     git remote set-url origin https://github.com/SillyTavern/SillyTavern 2>/dev/null || true
 
-    # ---- [2/3] 装依赖 ----
     echo "[2/3] 安装依赖（约 1-2 分钟）..."
     clean_and_reinstall_deps --clean-cache --label "依赖" || return 1
 
-    # ---- [3/3] 瘦身 ----
     echo "[3/3] 瘦身..."
     cd "$INSTALL_DIR" || return 1
     rm -rf "$HOME/.npm" 2>/dev/null
@@ -153,7 +148,6 @@ install_tavern_only() {
 do_install() {
     local STORAGE_DIR="$HOME/storage/shared"
 
-    # ---- 存储权限检查 ----
     if [ ! -d "$STORAGE_DIR" ]; then
         clear
         echo -e "${YELLOW}⚠️ 未检测到存储权限（目录 $STORAGE_DIR 不存在）${NC}"
@@ -196,7 +190,6 @@ do_install() {
     echo "  ========================"
     echo ""
 
-    # ---- [1/4] 配置国内镜像 ----
     echo "[1/4] 配置国内镜像..."
     if [ -f "$PREFIX/etc/apt/sources.list" ]; then
         cp "$PREFIX/etc/apt/sources.list" "$PREFIX/etc/apt/sources.list.bak" 2>/dev/null || true
@@ -205,20 +198,17 @@ do_install() {
     pkg update -y 2>/dev/null || pkg update -y
     echo "  ✓ Termux → 清华镜像"
 
-    # ---- [2/4] 安装运行环境 ----
     echo "[2/4] 安装运行环境..."
     pkg install -y git nodejs-lts net-tools 2>/dev/null || { echo -e "${RED}  ✗ 依赖安装失败${NC}"; return 1; }
     echo "  ✓ Node.js $(node -v)"
     echo "  ✓ ifconfig 已安装"
 
-    # ---- [3/4] 配置 npm 加速 ----
     echo "[3/4] 配置 npm 加速..."
     npm config set registry https://registry.npmmirror.com
     export NPM_CONFIG_REGISTRY=https://registry.npmmirror.com
     export NODE_OPTIONS="--max-old-space-size=512"
     echo "  ✓ npm → 淘宝镜像"
 
-    # ---- [4/4] git / node 瘦身 ----
     echo "[4/4] git / node 瘦身..."
     slim_git_node
 
@@ -227,6 +217,12 @@ do_install() {
     echo "  ║    环境配置完成！                 ║"
     echo "  ╚══════════════════════════════════════╝"
     echo ""
+
+    # ---- 被 fn_install_tavern 调用时，不暂停 ----
+    if [ "${DO_INSTALL_NO_PAUSE:-0}" = "1" ]; then
+        return 0
+    fi
+
     echo -e "  ${YELLOW}💡 下一步：按 [4] 安装 SillyTavern${NC}"
     echo -e "  ${CYAN}💡 安装完成后再按 [1] 启动${NC}"
     echo ""
