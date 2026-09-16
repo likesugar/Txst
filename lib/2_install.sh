@@ -22,6 +22,23 @@ fn_install_tavern() {
         return
     fi
 
+    # ---- 环境缺失 → 先装环境，再装酒馆 ----
+    if ! command_exists git || ! command_exists node || ! command_exists npm; then
+        echo ""
+        echo -e "${YELLOW}⚠️ 运行环境不完整，将先配置环境再安装酒馆${NC}"
+        echo ""
+        sleep 1
+
+        do_install || return 1
+
+        echo ""
+        echo -e "${CYAN}环境配置完成，继续安装 SillyTavern...${NC}"
+        sleep 1
+        install_tavern_only
+        return
+    fi
+
+    # ---- 环境齐全 → 直接装酒馆 ----
     install_tavern_only
 }
 
