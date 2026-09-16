@@ -211,7 +211,22 @@ do_install() {
 
     # ---- [2/4] 安装运行环境 ----
     echo "[2/4] 安装运行环境..."
-    pkg install -y git nodejs-lts net-tools 2>/dev/null || { echo -e "${RED}  ✗ 依赖安装失败${NC}"; return 1; }
+    pkg install -y git nodejs-lts net-tools 2>&1 | tail -5
+
+    # 独立验证（防止 pkg 返回 0 但实际没装好）
+    local missing=()
+    command_exists git  || missing+=("git")
+    command_exists node || missing+=("nodejs-lts")
+    command_exists npm  || missing+=("npm")
+
+    if [ ${#missing[@]} -gt 0 ]; then
+        echo -e "${RED}✗ 环境安装失败，缺少：${missing[*]}${NC}"
+        echo -e "${YELLOW}请手动执行：pkg install -y git nodejs-lts net-tools${NC}"
+        printf "按回车返回..."
+        read -r _
+        return 1
+    fi
+
     echo "  ✓ Node.js $(node -v)"
     echo "  ✓ ifconfig 已安装"
 
