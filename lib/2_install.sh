@@ -164,7 +164,7 @@ do_install() {
         echo -e "${YELLOW}   Termux 需要访问外部存储才能保存角色卡、聊天记录等数据。${NC}"
         echo ""
         echo -e "  是否现在运行 ${CYAN}termux-setup-storage${NC} 授权？"
-        echo -e "  （会弹出系统权限请求，请点击"允许"）"
+        echo -e "  （会弹出系统权限请求，请点击\"允许\"）"
         printf "  输入 ${GREEN}[y]${NC} 立即授权，${RED}[n]${NC} 退出安装: "
         read -r PERM_CHOICE
 
@@ -180,7 +180,7 @@ do_install() {
                 done
                 if [ ! -d "$STORAGE_DIR" ]; then
                     echo -e "${RED}✗ 授权超时或未成功，请手动运行 termux-setup-storage 后重试。${NC}"
-                    exit 1
+                    return 1
                 else
                     echo -e "${GREEN}✓ 存储权限已获取${NC}"
                 fi
@@ -188,7 +188,7 @@ do_install() {
             *)
                 echo -e "${RED}✗ 未授权存储权限，无法继续安装。${NC}"
                 echo -e "${YELLOW}请稍后手动运行 termux-setup-storage，再重新执行本脚本。${NC}"
-                exit 1
+                return 1
                 ;;
         esac
     else
