@@ -215,10 +215,12 @@ apply_ref_and_reinstall() {
     else
         echo -e "${RED}${fail_msg}${NC}"
     fi
+    printf "按回车继续..."
+    read -r _
 }
 
 # ======================================
-# 更新
+# 更新（子菜单）
 # ======================================
 fn_update() {
     if ! check_installed; then
@@ -226,77 +228,72 @@ fn_update() {
         return
     fi
 
-    fn_stop 2>/dev/null || true
-    cd "$INSTALL_DIR" || return
+    while true; do
+        clear
+        echo -e "${CYAN}${BOLD}═══════ 🔄 更新管理 ═══════${NC}"
+        echo ""
 
-    echo -e "${CYAN}正在拉取最新代码...${NC}"
-    git fetch --all --tags 2>/dev/null
+        cd "$INSTALL_DIR" || return
 
-    local current_branch
-    current_branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null)
-    if [ "$current_branch" == "HEAD" ]; then
-        current_branch="detached (HEAD)"
-    fi
-    local current_tag
-    current_tag=$(git describe --tags --exact-match 2>/dev/null || echo "")
-    local current_commit
-    current_commit=$(git rev-parse --short HEAD 2>/dev/null)
+        # ---- 显示当前版本 ----
+        local current_branch current_tag current_commit
+        current_branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null)
+        [ "$current_branch" = "HEAD" ] && current_branch="detached (HEAD)"
+        current_tag=$(git describe --tags --exact-match 2>/dev/null || echo "")
+        current_commit=$(git rev-parse --short HEAD 2>/dev/null)
 
-    echo -e "${BLUE}当前分支: ${YELLOW}$current_branch${NC}"
-    if [ -n "$current_tag" ]; then
-        echo -e "${BLUE}当前版本 Tag: ${YELLOW}$current_tag${NC}"
-    else
-        echo -e "${BLUE}当前版本: ${YELLOW}未关联 Tag (commit $current_commit)${NC}"
-    fi
+        echo -e "  ${BLUE}当前分支: ${YELLOW}$current_branch${NC}"
+        if [ -n "$current_tag" ]; then
+            echo -e "  ${BLUE}当前版本: ${YELLOW}$current_tag${NC}"
+        else
+            echo -e "  ${BLUE}当前版本: ${YELLOW}未关联 Tag (commit $current_commit)${NC}"
+        fi
+        echo ""
 
-    local -a available_tags=()
-    while IFS= read -r tag; do
-        available_tags+=("$tag")
-    done < <(git tag --sort=-creatordate 2>/dev/null | head -n 10)
+        echo -e "  ${BOLD}请选择操作：${NC}"
+        echo -e "  ${GREEN}[1]${NC} 更新到 release 分支 (推荐)"
+        echo -e "  ${GREEN}[2]${NC} 更新到 main 分支"
+        echo -e "  ${GREEN}[3]${NC} 更新到指定 Tag"
+        echo -e "  ${CYAN}[4]${NC} 仅拉取代码 (不重装依赖)"
+        echo ""
+        echo -e "  ${RED}[0]${NC} 返回"
+        echo ""
+        printf "选择: "
+        read -r UP_CHOICE
 
-    echo ""
-    echo -e "${BOLD}请选择更新目标：${NC}"
-    echo -e "  ${GREEN}[1]${NC} release 分支 (推荐)"
-    echo -e "  ${GREEN}[2]${NC} main 分支"
-    if [ ${#available_tags[@]} -gt 0 ]; then
-        echo -e "  ${GREEN}[3]${NC} 指定 Tag 版本"
-    fi
-    printf "请输入选项 [1-3] (默认 1): "
-    read -r UPDATE_CHOICE
-    UPDATE_CHOICE=${UPDATE_CHOICE:-1}
-
-    local target_ref="origin/release"
-    local target_label="release 分支"
-    local selected_tag=""
-
-    case $UPDATE_CHOICE in
-        2)
-            target_ref="origin/main"
-            target_label="main 分支"
-            ;;
-        3)
-            if [ ${#available_tags[@]} -eq 0 ]; then
-                echo -e "${RED}未检测到 Tag。${NC}"
-                return
-            fi
-            selected_tag=$(choose_tag) || { echo -e "${RED}操作取消。${NC}"; return; }
-            target_ref="tags/$selected_tag"
-            target_label="Tag $selected_tag"
-            ;;
-        *)
-            if ! git show-ref --verify --quiet refs/remotes/origin/release 2>/dev/null; then
-                target_ref="origin/main"
-                target_label="main 分支 (release 不存在)"
-                echo -e "${YELLOW}未找到 release 分支，已改为 main。${NC}"
-            fi
-            ;;
-    esac
-
-    apply_ref_and_reinstall "$target_ref" "更新到" "更新失败，请检查网络或版本号是否正确。"
+        case "$UP_CHOICE" in
+            1)
+                fn_stop 2>/dev/null || true
+                git fetch --all --tags 2>/dev/null
+                apply_ref_and_reinstall "origin/release" "更新到" "更新失败，请检查网络"
+                ;;
+            2)
+                fn_stop 2>/dev/null || true
+                git fetch --all --tags 2>/dev/null
+                apply_ref_and_reinstall "origin/main" "更新到" "更新失败，请检查网络"
+                ;;
+            3)
+                fn_stop 2>/dev/null || true
+                git fetch --all --tags 2>/dev/null
+                local tag
+                tag=$(choose_tag) || { echo -e "${RED}操作取消。${NC}"; sleep 1; continue; }
+                apply_ref_and_reinstall "tags/$tag" "更新到" "更新失败，请检查版本号"
+                ;;
+            4)
+                echo -e "${CYAN}正在拉取代码...${NC}"
+                git fetch --all --tags 2>/dev/null
+                echo -e "${GREEN}✓ 代码已拉取，未重装依赖${NC}"
+                printf "按回车继续..."
+                read -r _
+                ;;
+            0) return ;;
+            *) echo -e "${RED}无效选项${NC}"; sleep 1 ;;
+        esac
+    done
 }
 
 # ======================================
-# 版本回退
+# 版本回退（子菜单）
 # ======================================
 fn_rollback() {
     if ! check_installed; then
@@ -304,37 +301,74 @@ fn_rollback() {
         return
     fi
 
-    fn_stop 2>/dev/null || true
-    cd "$INSTALL_DIR" || return
-    echo -e "${CYAN}正在获取版本记录...${NC}"
-    git fetch --all --tags 2>/dev/null
+    while true; do
+        clear
+        echo -e "${CYAN}${BOLD}═══════ ⏪ 版本回退 / 切换 ═══════${NC}"
+        echo ""
 
-    echo ""
-    echo -e "${BOLD}请选择回退/切换方式：${NC}"
-    echo -e "  ${GREEN}[1]${NC} 按版本号 (Tag) 切换 (推荐)"
-    echo -e "  ${GREEN}[2]${NC} 按 Commit Hash 回退"
-    printf "请选择 [1-2]: "
-    read -r RB_CHOICE
+        cd "$INSTALL_DIR" || return
 
-    local TARGET=""
+        # ---- 显示当前版本 ----
+        local current_branch current_tag current_commit
+        current_branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null)
+        [ "$current_branch" = "HEAD" ] && current_branch="detached (HEAD)"
+        current_tag=$(git describe --tags --exact-match 2>/dev/null || echo "")
+        current_commit=$(git rev-parse --short HEAD 2>/dev/null)
 
-    case "$RB_CHOICE" in
-        2)
-            echo -e "${YELLOW}最近的 10 个提交记录：${NC}"
-            git log -n 10 --oneline
-            echo ""
-            printf "请输入 Commit Hash: "
-            read -r TARGET
-            if [ -z "$TARGET" ]; then
-                echo -e "${RED}输入为空，操作取消。${NC}"
-                return
-            fi
-            ;;
-        *)
-            TARGET=$(choose_tag) || { echo -e "${RED}操作取消。${NC}"; return; }
-            TARGET="tags/$TARGET"
-            ;;
-    esac
+        echo -e "  ${BLUE}当前分支: ${YELLOW}$current_branch${NC}"
+        if [ -n "$current_tag" ]; then
+            echo -e "  ${BLUE}当前版本: ${YELLOW}$current_tag${NC}"
+        else
+            echo -e "  ${BLUE}当前版本: ${YELLOW}未关联 Tag (commit $current_commit)${NC}"
+        fi
+        echo ""
 
-    apply_ref_and_reinstall "$TARGET" "切换到" "切换失败，请检查输入是否正确。"
+        echo -e "  ${BOLD}请选择操作：${NC}"
+        echo -e "  ${GREEN}[1]${NC} 按版本号 (Tag) 切换"
+        echo -e "  ${GREEN}[2]${NC} 按 Commit Hash 回退"
+        echo -e "  ${CYAN}[3]${NC} 查看最近 10 个 Tag"
+        echo -e "  ${CYAN}[4]${NC} 查看最近 10 个提交"
+        echo ""
+        echo -e "  ${RED}[0]${NC} 返回"
+        echo ""
+        printf "选择: "
+        read -r RB_CHOICE
+
+        case "$RB_CHOICE" in
+            1)
+                fn_stop 2>/dev/null || true
+                git fetch --all --tags 2>/dev/null
+                local tag
+                tag=$(choose_tag) || { echo -e "${RED}操作取消。${NC}"; sleep 1; continue; }
+                apply_ref_and_reinstall "tags/$tag" "切换到" "切换失败，请检查版本号"
+                ;;
+            2)
+                fn_stop 2>/dev/null || true
+                git fetch --all --tags 2>/dev/null
+                echo -e "${YELLOW}最近的 10 个提交记录：${NC}"
+                git log -n 10 --oneline
+                echo ""
+                printf "请输入 Commit Hash: "
+                read -r target
+                [ -z "$target" ] && { echo -e "${RED}输入为空${NC}"; sleep 1; continue; }
+                apply_ref_and_reinstall "$target" "切换到" "切换失败，请检查输入"
+                ;;
+            3)
+                echo ""
+                git tag --sort=-creatordate 2>/dev/null | head -n 10 | sed 's/^/    /'
+                echo ""
+                printf "按回车继续..."
+                read -r _
+                ;;
+            4)
+                echo ""
+                git log -n 10 --oneline | sed 's/^/    /'
+                echo ""
+                printf "按回车继续..."
+                read -r _
+                ;;
+            0) return ;;
+            *) echo -e "${RED}无效选项${NC}"; sleep 1 ;;
+        esac
+    done
 }

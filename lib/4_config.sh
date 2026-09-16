@@ -150,7 +150,7 @@ random_port() {
 }
 
 # ======================================
-# 设置密码验证 / 访问控制
+# 访问控制（子菜单）
 # ======================================
 fn_set_password() {
     if ! check_installed; then
@@ -162,148 +162,150 @@ fn_set_password() {
         return
     fi
 
-    echo ""
-    echo -e "${CYAN}${BOLD}═══════ 访问控制设置 ═══════${NC}"
-    echo ""
+    while true; do
+        clear
+        echo -e "${CYAN}${BOLD}═══════ 🔐 访问控制 ═══════${NC}"
+        echo ""
 
-    if [ -f "$LAN_FLAG" ]; then
-        local IP
-        IP=$(get_lan_ip)
-        local PORT
-        PORT=$(get_current_port)
-        echo -e "${CYAN}🌐 局域网状态: 已开启${NC}"
-        echo -e "${CYAN}   访问地址: http://${IP:-<IP>}:${PORT}${NC}"
-        echo -e "${CYAN}   当前端口: ${PORT}${NC}"
-    else
-        echo -e "${YELLOW}🌐 局域网状态: 已关闭 (仅本机访问)${NC}"
-    fi
-    echo ""
-
-    local CURRENT_AUTH
-    CURRENT_AUTH=$(read_config_key "basicAuthMode")
-    local CURRENT_USER
-    CURRENT_USER=$(read_config_key "username" 1)
-    local CURRENT_PASS
-    CURRENT_PASS=$(read_config_key "password" 1)
-    local CURRENT_WL
-    CURRENT_WL=$(get_whitelist_mode)
-
-    echo -e "${YELLOW}📋 当前状态：${NC}"
-
-    if [ "$CURRENT_AUTH" = "true" ] && [ -n "$CURRENT_USER" ] && [ "$CURRENT_USER" != '""' ]; then
-        echo -e "  ${GREEN}密码验证：✅ 已开启${NC}"
-        echo -e "    ${CYAN}账号：${CURRENT_USER}${NC}"
-        if [ -n "$CURRENT_PASS" ] && [ "$CURRENT_PASS" != '""' ]; then
-            echo -e "    ${CYAN}密码：${CURRENT_PASS}${NC}"
+        # ---- 局域网状态 ----
+        if [ -f "$LAN_FLAG" ]; then
+            local IP PORT
+            IP=$(get_lan_ip)
+            PORT=$(get_current_port)
+            echo -e "${CYAN}🌐 局域网: 已开启${NC}"
+            echo -e "${CYAN}   地址: http://${IP:-<IP>}:${PORT}${NC}"
+            echo -e "${CYAN}   端口: ${PORT}${NC}"
         else
-            echo -e "    ${YELLOW}密码：未设置${NC}"
+            echo -e "${YELLOW}🌐 局域网: 已关闭 (仅本机)${NC}"
         fi
+        echo ""
+
+        # ---- 当前状态 ----
+        local CURRENT_AUTH CURRENT_USER CURRENT_PASS CURRENT_WL
+        CURRENT_AUTH=$(read_config_key "basicAuthMode")
+        CURRENT_USER=$(read_config_key "username" 1)
+        CURRENT_PASS=$(read_config_key "password" 1)
+        CURRENT_WL=$(get_whitelist_mode)
+
+        echo -e "${YELLOW}📋 当前状态：${NC}"
+        if [ "$CURRENT_AUTH" = "true" ] && [ -n "$CURRENT_USER" ] && [ "$CURRENT_USER" != '""' ]; then
+            echo -e "  ${GREEN}密码验证：✅ 已开启${NC}"
+            echo -e "    ${CYAN}账号：${CURRENT_USER}${NC}"
+            [ -n "$CURRENT_PASS" ] && [ "$CURRENT_PASS" != '""' ] && \
+                echo -e "    ${CYAN}密码：${CURRENT_PASS}${NC}"
+        else
+            echo -e "  ${RED}密码验证：❌ 未开启${NC}"
+        fi
+
+        case "$CURRENT_WL" in
+            true)  echo -e "  ${GREEN}白名单模式：✅ 已开启${NC}" ;;
+            false) echo -e "  ${RED}白名单模式：❌ 已关闭${NC}" ;;
+            *)     echo -e "  ${YELLOW}白名单模式：未设置${NC}" ;;
+        esac
+        echo ""
+
+        echo -e "  ${BOLD}请选择操作：${NC}"
+        echo -e "  ${GREEN}[1]${NC} 设置/修改账号密码"
+        echo -e "  ${YELLOW}[2]${NC} 关闭密码认证"
+        echo -e "  ${GREEN}[3]${NC} 重新生成随机端口"
+        echo -e "  ${CYAN}[4]${NC} 切换白名单模式"
+        echo -e "  ${CYAN}[5]${NC} 查看当前白名单列表"
+        echo ""
+        echo -e "  ${RED}[0]${NC} 返回"
+        echo ""
+
+        printf "选择: "
+        read -r PW_CHOICE
+
+        case "$PW_CHOICE" in
+            1) _pw_set_credentials ;;
+            2) _pw_disable_auth ;;
+            3) _pw_random_port ;;
+            4) _pw_toggle_whitelist ;;
+            5) _pw_show_whitelist ;;
+            0) return ;;
+            *) echo -e "${RED}无效选项${NC}"; sleep 1 ;;
+        esac
+    done
+}
+
+# ---- 设置/修改账号密码 ----
+_pw_set_credentials() {
+    echo ""
+    printf "请输入账号 (不能为空): "
+    read -r NEW_USER
+    [ -z "$NEW_USER" ] && { echo -e "${RED}账号不能为空${NC}"; sleep 1; return; }
+
+    printf "请输入密码 (不能为空): "
+    read -r NEW_PASSWORD
+    [ -z "$NEW_PASSWORD" ] && { echo -e "${RED}密码不能为空${NC}"; sleep 1; return; }
+
+    cp "$INSTALL_DIR/config.yaml" "$INSTALL_DIR/config.yaml.bak"
+    set_config_key "basicAuthMode" "true"
+    set_config_key "username" "\"${NEW_USER}\"" 1
+    set_config_key "password" "\"${NEW_PASSWORD}\"" 1
+
+    echo ""
+    echo -e "${GREEN}✓ 密码验证已设置${NC}"
+    echo -e "  ${CYAN}账号: ${NEW_USER}${NC}"
+    is_running && echo -e "${YELLOW}  ⚠️ 需要重启酒馆才能生效${NC}"
+    printf "按回车继续..."
+    read -r _
+}
+
+# ---- 关闭密码认证 ----
+_pw_disable_auth() {
+    echo ""
+    if [ "$(read_config_key basicAuthMode)" = "true" ]; then
+        set_config_key "basicAuthMode" "false"
+        echo -e "${GREEN}✓ 密码认证已关闭${NC}"
     else
-        echo -e "  ${RED}密码验证：❌ 未开启${NC}"
+        echo -e "${YELLOW}密码认证未开启${NC}"
     fi
+    is_running && echo -e "${YELLOW}  ⚠️ 需要重启酒馆才能生效${NC}"
+    printf "按回车继续..."
+    read -r _
+}
 
-    case "$CURRENT_WL" in
-        true)
-            echo -e "  ${GREEN}白名单模式：✅ 已开启${NC}"
-            ;;
-        false)
-            echo -e "  ${RED}白名单模式：❌ 已关闭${NC}"
-            ;;
-        *)
-            echo -e "  ${YELLOW}白名单模式：未设置${NC}"
-            ;;
-    esac
+# ---- 重新生成随机端口 ----
+_pw_random_port() {
     echo ""
+    if [ ! -f "$LAN_FLAG" ]; then
+        echo -e "${YELLOW}⚠️ 局域网未开启，无需随机端口${NC}"
+        printf "按回车继续..."
+        read -r _
+        return
+    fi
+    local NEW_PORT
+    NEW_PORT=$(random_port)
+    set_config_key "port" "${NEW_PORT}"
+    echo -e "${GREEN}✓ 端口已更换为: ${NEW_PORT}${NC}"
+    is_running && echo -e "${YELLOW}  ⚠️ 需要重启酒馆才能生效${NC}"
+    printf "按回车继续..."
+    read -r _
+}
 
-    echo -e "  ${GREEN}[1]${NC} 设置/修改账号密码"
-    echo -e "  ${YELLOW}[2]${NC} 关闭密码认证"
-    echo -e "  ${GREEN}[3]${NC} 重新生成随机端口"
-    echo -e "  ${CYAN}[4]${NC} 切换白名单模式 (当前: ${CURRENT_WL})"
-    echo -e "  ${RED}[0]${NC} 返回"
+# ---- 切换白名单模式 ----
+_pw_toggle_whitelist() {
     echo ""
-
-    printf "请选择: "
-    read -r PASS_CHOICE
-
-    case "$PASS_CHOICE" in
-        1)
-            echo ""
-            printf "请输入账号 (不能为空): "
-            read -r NEW_USER
-            if [ -z "$NEW_USER" ]; then
-                echo -e "${RED}账号不能为空，取消设置${NC}"
-                printf "按回车返回..."
-                read -r _
-                return
-            fi
-
-            printf "请输入密码 (不能为空): "
-            read -r NEW_PASSWORD
-            if [ -z "$NEW_PASSWORD" ]; then
-                echo -e "${RED}密码不能为空，取消设置${NC}"
-                printf "按回车返回..."
-                read -r _
-                return
-            fi
-
-            cp "$INSTALL_DIR/config.yaml" "$INSTALL_DIR/config.yaml.bak"
-
-            set_config_key "basicAuthMode" "true"
-            set_config_key "username" "\"${NEW_USER}\"" 1
-            set_config_key "password" "\"${NEW_PASSWORD}\"" 1
-
-            echo ""
-            echo -e "${GREEN}✓ 密码验证已设置${NC}"
-            echo -e "  ${CYAN}账号: ${NEW_USER}${NC}"
-
-            if is_running; then
-                echo -e "${YELLOW}  ⚠️ 需要重启酒馆才能生效${NC}"
-            fi
-            ;;
-        2)
-            echo ""
-            if [ "$(read_config_key basicAuthMode)" = "true" ]; then
-                set_config_key "basicAuthMode" "false"
-                echo -e "${GREEN}✓ 密码认证已关闭${NC}"
-            else
-                echo -e "${YELLOW}密码认证未开启${NC}"
-            fi
-            if is_running; then
-                echo -e "${YELLOW}  ⚠️ 需要重启酒馆才能生效${NC}"
-            fi
-            ;;
-        3)
-            echo ""
-            if [ ! -f "$LAN_FLAG" ]; then
-                echo -e "${YELLOW}⚠️ 局域网未开启，无需随机端口${NC}"
-                printf "按回车返回..."
-                read -r _
-                return
-            fi
-
-            local NEW_PORT
-            NEW_PORT=$(random_port)
-            set_config_key "port" "${NEW_PORT}"
-
-            echo -e "${GREEN}✓ 端口已更换为: ${NEW_PORT}${NC}"
-
-            if is_running; then
-                echo -e "${YELLOW}  ⚠️ 需要重启酒馆才能生效${NC}"
-            fi
-            ;;
-        4)
-            echo ""
-            toggle_whitelist_mode
-            echo ""
-            if is_running; then
-                echo -e "${YELLOW}  ⚠️ 需要重启酒馆才能生效${NC}"
-            fi
-            ;;
-        0) return ;;
-        *) echo -e "${RED}无效选项${NC}" ;;
-    esac
-
+    toggle_whitelist_mode
     echo ""
-    printf "按回车返回..."
+    is_running && echo -e "${YELLOW}  ⚠️ 需要重启酒馆才能生效${NC}"
+    printf "按回车继续..."
+    read -r _
+}
+
+# ---- 查看当前白名单列表 ----
+_pw_show_whitelist() {
+    echo ""
+    echo -e "${CYAN}当前白名单列表：${NC}"
+    if [ -f "$INSTALL_DIR/config.yaml" ]; then
+        awk '
+            /^whitelist:/ {inblk=1; next}
+            inblk && /^[^[:space:]]/ {inblk=0}
+            inblk && /^[[:space:]]*-/ {print "    " $0}
+        ' "$INSTALL_DIR/config.yaml"
+    fi
+    printf "按回车继续..."
     read -r _
 }

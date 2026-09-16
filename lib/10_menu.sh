@@ -24,15 +24,15 @@ header() {
 # ======================================
 show_menu() {
     echo -e "  ${BOLD}═══ 管理 ═══${NC}"
-    echo -e "  ${GREEN}[1]${NC} 启动  ${GREEN}[2]${NC} 停止  ${GREEN}[3]${NC} 重启"
-    echo -e "  ${GREEN}[4]${NC}⭐️扩展管理⭐️${GREEN}[5]${NC}✨️推荐配置✨️"
+    echo -e "  ${GREEN}[1]${NC} 启动  ${GREEN}[2]${NC} 停止  ${GREEN}[3]${NC} 重启  ${GREEN}[4]${NC} 安装"
+    echo -e "  ${GREEN}[5]${NC}⭐️扩展管理⭐️${GREEN}[6]${NC}✨️推荐配置✨️"
     echo ""
     echo -e "  ${BOLD}═══ 维护 ═══${NC}"
-    echo -e "  ${BLUE}[6]${NC} 清理残余文件  ${BLUE}[7]${NC} Foxium工具箱"
-    echo -e "  ${BLUE}[8]${NC} 更新  ${BLUE}[9]${NC} 日志  ${BLUE}[10]${NC} 版本回退/切换"
+    echo -e "  ${BLUE}[7]${NC} 清理残余文件  ${BLUE}[8]${NC} Foxium工具箱"
+    echo -e "  ${BLUE}[9]${NC} 更新  ${BLUE}[10]${NC} 日志  ${BLUE}[11]${NC} 版本回退/切换"
     echo ""
     echo -e "  ${BOLD}═══ 数据 ═══${NC}"
-    echo -e "  ${YELLOW}[11]${NC} 备份  ${YELLOW}[12]${NC} 恢复  ${YELLOW}[13]${NC} 重装依赖"
+    echo -e "  ${YELLOW}[12]${NC} 备份  ${YELLOW}[13]${NC} 恢复  ${YELLOW}[14]${NC} 重装依赖"
     echo ""
     echo -e "  ${BOLD}═══ 局域网 ═══${NC}"
     if [ -f "$LAN_FLAG" ]; then
@@ -65,31 +65,14 @@ setup_auto_menu() {
 }
 
 # ======================================
-# 入口初始化
+# 入口初始化（不再自动安装）
 # ======================================
 init() {
-    if ! check_installed; then
-        # ---- 未安装：执行首次安装 ----
-        do_install
-        setup_auto_menu
-        rotate_logs
-        header
-        show_menu
-    else
-        # ---- 已安装：初始化 ----
-        setup_auto_menu
-
-        # 每次打开脚本时，默认关闭局域网
-        rm -f "$LAN_FLAG" 2>/dev/null
-        if [ -f "$INSTALL_DIR/config.yaml" ]; then
-            sed -i 's/^listen:.*/listen: false/' "$INSTALL_DIR/config.yaml" 2>/dev/null
-            sed -i 's/^port:.*/port: 8000/' "$INSTALL_DIR/config.yaml" 2>/dev/null
-        fi
-
-        rotate_logs
-        header
-        show_menu
-    fi
+    setup_auto_menu
+    rm -f "$LAN_FLAG" 2>/dev/null
+    rotate_logs
+    header
+    show_menu
 }
 
 # ======================================
@@ -103,24 +86,25 @@ main_loop() {
         read -r CHOICE
         rotate_logs
         case "$CHOICE" in
-            1) fn_start;   header; show_menu ;;
-            2) fn_stop;    header; show_menu ;;
-            3) fn_restart; header; show_menu ;;
-            4) fn_install_extension; header; show_menu ;;
-            5) fn_config; header; show_menu ;;
-            6) fn_clean;   header; show_menu ;;
-            7) fn_foxium;  header; show_menu ;;
-            8) fn_update;  header; show_menu ;;
-            9) fn_logs;    header; show_menu ;;
-            10) fn_rollback; header; show_menu ;;
-            11) fn_backup;  header; show_menu ;;
-            12) fn_restore; header; show_menu ;;
-            13) fn_reinstall_deps; header; show_menu ;;
-            y|Y) fn_lan_on; header; show_menu ;;
+            1)  fn_start;   header; show_menu ;;
+            2)  fn_stop;    header; show_menu ;;
+            3)  fn_restart; header; show_menu ;;
+            4)  fn_install_tavern; header; show_menu ;;
+            5)  fn_install_extension; header; show_menu ;;
+            6)  fn_config;  header; show_menu ;;
+            7)  fn_clean;   header; show_menu ;;
+            8)  fn_foxium;  header; show_menu ;;
+            9)  fn_update;  header; show_menu ;;
+            10) fn_logs;    header; show_menu ;;
+            11) fn_rollback; header; show_menu ;;
+            12) fn_backup;  header; show_menu ;;
+            13) fn_restore; header; show_menu ;;
+            14) fn_reinstall_deps; header; show_menu ;;
+            y|Y) fn_lan_on;  header; show_menu ;;
             n|N) fn_lan_off; header; show_menu ;;
             m|M) fn_set_password; header; show_menu ;;
-            99) fn_uninstall ;;
-            0) echo "👋 再见~"; exit 0 ;;
+            99) fn_uninstall; header; show_menu ;;
+            0)  echo "👋 再见~"; exit 0 ;;
             *)
                 echo -e "${RED}无效选项: $CHOICE${NC}"
                 echo -e "${YELLOW}提示：请直接输入数字或字母，不要按方向键${NC}"

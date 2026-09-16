@@ -1,12 +1,137 @@
 #!/data/data/com.termux/files/usr/bin/bash
 #==========================================================================
-#  模块 2 · 首次安装
-#  职责：安装 Termux 环境、克隆酒馆源码、安装依赖
+#  模块 2 · 首次安装 / 酒馆安装
+#  职责：环境配置（首次）+ 酒馆安装（按 [4]）
 #  依赖：0_core.sh（常量/颜色/工具函数）、1_service.sh（启动）、3_deps.sh（依赖安装）
 #==========================================================================
 
 # ======================================
-# 首次安装
+# 菜单入口：安装 / 重装酒馆
+# ======================================
+fn_install_tavern() {
+    if check_installed; then
+        echo ""
+        echo -e "${YELLOW}⚠️ SillyTavern 已安装${NC}"
+        echo ""
+        echo -e "  ${CYAN}请选择：${NC}"
+        echo -e "    ${GREEN}[9]${NC}  更新到最新版本"
+        echo -e "    ${YELLOW}[99] → [2]${NC}  卸载后重新安装"
+        echo ""
+        printf "按回车返回..."
+        read -r _
+        return
+    fi
+
+    install_tavern_only
+}
+
+# ======================================
+# 仅安装酒馆本体
+# ======================================
+install_tavern_only() {
+    # ---- 环境检查（缺了就给提示，不自动装）----
+    local missing=()
+    command_exists git  || missing+=("git")
+    command_exists node || missing+=("nodejs-lts")
+    command_exists npm  || missing+=("npm")
+
+    if [ ${#missing[@]} -gt 0 ]; then
+        echo -e "${RED}✗ 缺少运行环境：${missing[*]}${NC}"
+        echo -e "${YELLOW}请先执行完整安装补齐环境${NC}"
+        printf "按回车返回..."
+        read -r _
+        return 1
+    fi
+
+    # ---- 存储权限检查 ----
+    local STORAGE_DIR="$HOME/storage/shared"
+    if [ ! -d "$STORAGE_DIR" ]; then
+        echo -e "${YELLOW}⚠️ 未检测到存储权限${NC}"
+        printf "  是否现在运行 termux-setup-storage？[y/N]: "
+        read -r PERM_CHOICE
+        case "$PERM_CHOICE" in
+            y|Y)
+                termux-setup-storage
+                local WAIT=0
+                while [ ! -d "$STORAGE_DIR" ] && [ $WAIT -lt 10 ]; do
+                    sleep 1
+                    WAIT=$((WAIT + 1))
+                done
+                [ ! -d "$STORAGE_DIR" ] && { echo -e "${RED}✗ 授权超时${NC}"; return 1; }
+                ;;
+            *) echo -e "${RED}✗ 未授权，退出${NC}"; return 1 ;;
+        esac
+    fi
+
+    # ---- 已存在检查 ----
+    if [ -d "$INSTALL_DIR" ]; then
+        echo -e "${YELLOW}⚠️ $INSTALL_DIR 已存在${NC}"
+        printf "是否删除并重新安装？[y/N]: "
+        read -r CF
+        [ "$CF" != "y" ] && [ "$CF" != "Y" ] && return 0
+        fn_stop 2>/dev/null || true
+        rm -rf "$INSTALL_DIR"
+        echo -e "${GREEN}✓ 已删除旧版本${NC}"
+    fi
+
+    echo ""
+    echo -e "${CYAN}${BOLD}═══════ 📦 安装 SillyTavern ═══════${NC}"
+    echo ""
+
+    # ---- [1/3] 克隆源码 ----
+    echo "[1/3] 下载酒馆源码..."
+    cd ~ || return 1
+    local MIRRORS=(
+        "https://gh-proxy.com/https://github.com/SillyTavern/SillyTavern"
+        "https://gh.xiu2.xyz/https://github.com/SillyTavern/SillyTavern"
+        "https://github.com/SillyTavern/SillyTavern"
+    )
+    local OK=0
+    local URL
+    for URL in "${MIRRORS[@]}"; do
+        echo "  → $URL"
+        if git clone "$URL" -b release "$INSTALL_DIR" --depth 1 2>/dev/null; then
+            echo "  ✓ release 分支"; OK=1; break
+        fi
+        if git clone "$URL" -b staging "$INSTALL_DIR" --depth 1 2>/dev/null; then
+            echo "  ✓ staging 分支"; OK=1; break
+        fi
+    done
+    if [ "$OK" != "1" ]; then
+        echo -e "${RED}  ✗ 克隆失败，请检查网络${NC}"
+        printf "按回车返回..."
+        read -r _
+        return 1
+    fi
+    cd "$INSTALL_DIR" || return 1
+    git remote set-url origin https://github.com/SillyTavern/SillyTavern 2>/dev/null || true
+
+    # ---- [2/3] 装依赖 ----
+    echo "[2/3] 安装依赖（约 1-2 分钟）..."
+    clean_and_reinstall_deps --clean-cache --label "依赖" || return 1
+
+    # ---- [3/3] 瘦身 ----
+    echo "[3/3] 瘦身..."
+    cd "$INSTALL_DIR" || return 1
+    rm -rf "$HOME/.npm" 2>/dev/null
+    rm -f .*.tmp .*.swp .*.swo .*~ *~ 2>/dev/null
+    slim_git_node
+
+    mkdir -p "$BACKUP_DIR"
+
+    echo ""
+    echo -e "${GREEN}${BOLD}✅ SillyTavern 安装完成！${NC}"
+    echo ""
+    echo -e "${CYAN}💡 按 [1] 启动酒馆${NC}"
+    echo -e "${CYAN}💡 按 [6] 应用推荐配置${NC}"
+    echo -e "${CYAN}💡 按 [y] 开启局域网访问${NC}"
+    echo ""
+    printf "按回车返回..."
+    read -r _
+}
+
+# ======================================
+# 首次环境配置（不装酒馆）
 # ======================================
 do_install() {
     local STORAGE_DIR="$HOME/storage/shared"
@@ -50,12 +175,12 @@ do_install() {
     fi
 
     clear
-    echo "   淡蓝酒馆 · 首次安装"
+    echo "   淡蓝酒馆 · 环境配置"
     echo "  ========================"
     echo ""
 
-    # ---- [1/6] 配置国内镜像 ----
-    echo "[1/6] 配置国内镜像..."
+    # ---- [1/4] 配置国内镜像 ----
+    echo "[1/4] 配置国内镜像..."
     if [ -f "$PREFIX/etc/apt/sources.list" ]; then
         cp "$PREFIX/etc/apt/sources.list" "$PREFIX/etc/apt/sources.list.bak" 2>/dev/null || true
         sed -i 's@packages.termux.dev@mirrors.tuna.tsinghua.edu.cn/termux@' "$PREFIX/etc/apt/sources.list" 2>/dev/null || true
@@ -63,93 +188,31 @@ do_install() {
     pkg update -y 2>/dev/null || pkg update -y
     echo "  ✓ Termux → 清华镜像"
 
-    # ---- [2/6] 安装运行环境 ----
-    echo "[2/6] 安装运行环境..."
+    # ---- [2/4] 安装运行环境 ----
+    echo "[2/4] 安装运行环境..."
     pkg install -y git nodejs-lts net-tools 2>/dev/null || { echo -e "${RED}  ✗ 依赖安装失败${NC}"; return 1; }
     echo "  ✓ Node.js $(node -v)"
     echo "  ✓ ifconfig 已安装"
 
-    # ---- [3/6] 配置 npm 加速 ----
-    echo "[3/6] 配置 npm 加速..."
+    # ---- [3/4] 配置 npm 加速 ----
+    echo "[3/4] 配置 npm 加速..."
     npm config set registry https://registry.npmmirror.com
     export NPM_CONFIG_REGISTRY=https://registry.npmmirror.com
     export NODE_OPTIONS="--max-old-space-size=512"
     echo "  ✓ npm → 淘宝镜像"
 
-    # ---- [4/6] 下载酒馆源码 ----
-    echo "[4/6] 下载酒馆源码..."
-    cd ~ || return 1
-    local MIRRORS="
-https://gh-proxy.com/https://github.com/SillyTavern/SillyTavern
-https://gh.xiu2.xyz/https://github.com/SillyTavern/SillyTavern
-https://github.com/SillyTavern/SillyTavern
-"
-    local OK=0
-    local URL
-    for URL in $MIRRORS; do
-        echo "  → $URL"
-        if git clone "$URL" -b release "$INSTALL_DIR" --depth 1 2>/dev/null; then
-            echo "  ✓ release 分支"; OK=1; break
-        fi
-        if git clone "$URL" -b staging "$INSTALL_DIR" --depth 1 2>/dev/null; then
-            echo "  ✓ staging 分支"; OK=1; break
-        fi
-    done
-    if [ "$OK" != "1" ]; then
-        echo -e "${RED}  ✗ 克隆失败，请检查网络后重试${NC}"
-        return 1
-    fi
-    cd "$INSTALL_DIR" || return 1
-    git remote set-url origin https://github.com/SillyTavern/SillyTavern 2>/dev/null || true
-
-    # ---- [5/6] 清理旧依赖并重新安装 ----
-    echo "[5/6] 清理旧依赖并重新安装（约 1-2 分钟）..."
-    clean_and_reinstall_deps --clean-cache --label "依赖" || return 1
-
-    # ---- [5.5/6] 自动清理残余文件 ----
-    echo "[5.5/6] 自动清理残余文件..."
-    cd "$INSTALL_DIR" || return 1
-    rm -rf "$HOME/.npm" 2>/dev/null
-    rm -f .*.tmp .*.swp .*.swo .*~ *~ 2>/dev/null
-    echo "  ✓ 清理完成"
-
-    # ---- [5.6/6] git / node 瘦身 ----
-    echo "[5.6/6] git / node 瘦身..."
+    # ---- [4/4] git / node 瘦身 ----
+    echo "[4/4] git / node 瘦身..."
     slim_git_node
-
-    mkdir -p "$BACKUP_DIR"
-
-    # ---- Foxium 预安装 ----
-    echo ""
-    echo -e "${CYAN}🦊 正在预安装 Foxium 工具箱...${NC}"
-    local FOX_OK=0
-    if download_foxium "$HOME/ffss.sh"; then
-        echo -e "${GREEN}✅ Foxium 工具箱已预安装到 ~/ffss.sh${NC}"
-        FOX_OK=1
-    else
-        echo -e "${YELLOW}⚠️ Foxium 预安装失败，可在菜单中按 [7] 重新下载${NC}"
-    fi
 
     echo ""
     echo "  ╔══════════════════════════════════════╗"
-    echo "  ║    安装完成！                     ║"
+    echo "  ║    环境配置完成！                 ║"
     echo "  ╚══════════════════════════════════════╝"
     echo ""
-    echo "  💡 现在输入 1 启动酒馆"
-    echo "  💡 输入 y 开启局域网访问"
-    echo "  💡 输入 m 设置密码验证"
-    echo "  💡 输入 5 查看推荐配置"
-    echo "  💡 输入 7 使用 Foxium 工具箱"
+    echo -e "  ${YELLOW}💡 下一步：按 [4] 安装 SillyTavern${NC}"
+    echo -e "  ${CYAN}💡 安装完成后再按 [1] 启动${NC}"
     echo ""
-
-    # ---- 启动 Foxium 或提示 ----
-    if [ "$FOX_OK" = "1" ]; then
-        echo -e "${CYAN}🦊 Foxium 工具箱已准备就绪，正在启动...${NC}"
-        echo ""
-        sleep 1
-        bash "$HOME/ffss.sh"
-    else
-        echo -e "${YELLOW}💡 Foxium 工具箱未预安装成功，可在菜单中按 [7] 重新下载${NC}"
-        sleep 2
-    fi
+    printf "按回车返回菜单..."
+    read -r _
 }

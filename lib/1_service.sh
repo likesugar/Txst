@@ -9,9 +9,15 @@
 # ======================================
 fn_start() {
     if ! check_installed; then
-        echo -e "${RED}未安装${NC}"
+        echo -e "${RED}未安装 SillyTavern${NC}"
+        printf "是否现在安装？[Y/n]: "
+        read -r ANS
+        if [ "$ANS" != "n" ] && [ "$ANS" != "N" ]; then
+            do_install
+        fi
         return
     fi
+
     if is_running; then
         echo -e "${GREEN}已在运行${NC}"
         return
@@ -56,6 +62,10 @@ fn_stop() {
 # 重启
 # ======================================
 fn_restart() {
+    if ! check_installed; then
+        echo -e "${RED}未安装 SillyTavern${NC}"
+        return
+    fi
     fn_stop
     sleep 1
     fn_start
@@ -125,10 +135,12 @@ print_access_url() {
 }
 
 # ======================================
-# 状态文本
+# 状态文本（三级：未安装 / 未运行 / 运行中）
 # ======================================
 status_text() {
-    if is_running; then
+    if ! check_installed; then
+        echo -e "${RED}⚪ 未安装${NC}  ${YELLOW}(按 [1] 安装酒馆)${NC}"
+    elif is_running; then
         print_access_url
     else
         echo -e "${YELLOW}🔴 未运行${NC}"
