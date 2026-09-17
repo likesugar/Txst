@@ -6,6 +6,35 @@
 #==========================================================================
 
 # ======================================
+# 扩展元数据（数组定义）
+# ======================================
+EXT_URLS=(
+    "https://github.com/zonde306/ST-Prompt-Template"
+    "https://github.com/uhhhh15/QR.git"
+    "https://github.com/N0VI028/JS-Slash-Runner"
+    "https://github.com/uhhhh15/hide.git"
+)
+EXT_NAMES=(
+    "ST-Prompt-Template"
+    "QR"
+    "JS-Slash-Runner"
+    "hide"
+)
+EXT_DISPLAYS=(
+    "📋 提示词模板"
+    "🤖 QR助手"
+    "⚡ 酒馆助手"
+    "🫥 隐藏助手"
+)
+EXT_BRANCHES=(
+    ""
+    ""
+    ""
+    ""
+    ""
+)
+
+# ======================================
 # 扩展管理（子菜单）
 # ======================================
 fn_install_extension() {
@@ -19,13 +48,14 @@ fn_install_extension() {
         echo -e "${CYAN}${BOLD}═══════ 🧸 扩展管理 ═══════${NC}"
         echo ""
 
-        # ---- 扩展列表 ----
         echo -e "  ${YELLOW}✨ 可用的扩展:${NC}"
-        echo -e "  ${GREEN}[1]${NC} 🧸 小白助手 ${CYAN}(v3.0.6)${NC}"
-        echo -e "  ${GREEN}[2]${NC} 📋 Prompt Template（提示词模板）"
-        echo -e "  ${GREEN}[3]${NC} 🤖 QR助手"
-        echo -e "  ${GREEN}[4]${NC} ⚡ 酒馆助手"
-        echo -e "  ${GREEN}[5]${NC} 🫥 隐藏助手"
+        for ((i=0; i<${#EXT_URLS[@]}; i++)); do
+            if [ -n "${EXT_BRANCHES[$i]}" ]; then
+                echo -e "  ${GREEN}[$((i+1))]${NC} ${EXT_DISPLAYS[$i]} ${CYAN}(${EXT_BRANCHES[$i]})${NC}"
+            else
+                echo -e "  ${GREEN}[$((i+1))]${NC} ${EXT_DISPLAYS[$i]}"
+            fi
+        done
         echo ""
         echo -e "  ${BOLD}批量/自定义：${NC}"
         echo -e "  ${GREEN}[6]${NC} 🚀 安装全部扩展"
@@ -55,52 +85,10 @@ fn_install_extension() {
     done
 }
 
-# ======================================
-# 扩展元数据（数组）
-# ======================================
-_ext_urls() {
-    echo \
-        "https://github.com/RT15548/LittleWhiteBox" \
-        "https://github.com/zonde306/ST-Prompt-Template" \
-        "https://github.com/uhhhh15/QR.git" \
-        "https://github.com/N0VI028/JS-Slash-Runner" \
-        "https://github.com/uhhhh15/hide.git"
-}
-_ext_names() {
-    echo \
-        "LittleWhiteBox" \
-        "ST-Prompt-Template" \
-        "QR" \
-        "JS-Slash-Runner" \
-        "hide"
-}
-_ext_displays() {
-    echo \
-        "🧸 小白助手" \
-        "📋 Prompt Template（提示词模板）" \
-        "🤖 QR助手" \
-        "⚡ 酒馆助手" \
-        "🫥 隐藏助手"
-}
-_ext_branches() {
-    echo \
-        "v3.0.6" \
-        "" \
-        "" \
-        "" \
-        ""
-}
-
 # 按序号安装
 _install_extension_by_index() {
     local idx="$1"
-    local urls names displays branches
-    readarray -t urls     < <(_ext_urls)
-    readarray -t names    < <(_ext_names)
-    readarray -t displays < <(_ext_displays)
-    readarray -t branches < <(_ext_branches)
-
-    install_one "${urls[$idx]}" "${names[$idx]}" "${displays[$idx]}" "no" "${branches[$idx]}"
+    install_one "${EXT_URLS[$idx]}" "${EXT_NAMES[$idx]}" "${EXT_DISPLAYS[$idx]}" "no" "${EXT_BRANCHES[$idx]}"
     echo ""
     printf "按回车继续..."
     read -r _
@@ -108,13 +96,7 @@ _install_extension_by_index() {
 
 # 安装全部
 _install_all_extensions() {
-    local urls names displays branches
-    readarray -t urls     < <(_ext_urls)
-    readarray -t names    < <(_ext_names)
-    readarray -t displays < <(_ext_displays)
-    readarray -t branches < <(_ext_branches)
-
-    local total=${#urls[@]}
+    local total=${#EXT_URLS[@]}
     echo ""
     echo -e "${YELLOW}即将安装全部 ${total} 个扩展。${NC}"
     printf "是否覆盖已存在的扩展？[y/N]: "
@@ -125,8 +107,8 @@ _install_all_extensions() {
 
     for ((i=0; i<total; i++)); do
         echo ""
-        echo -e "${CYAN}--- 安装 [$((i+1))/${total}] ${displays[$i]} ---${NC}"
-        install_one "${urls[$i]}" "${names[$i]}" "${displays[$i]}" "$FORCE_FLAG" "${branches[$i]}"
+        echo -e "${CYAN}--- 安装 [$((i+1))/${total}] ${EXT_DISPLAYS[$i]} ---${NC}"
+        install_one "${EXT_URLS[$i]}" "${EXT_NAMES[$i]}" "${EXT_DISPLAYS[$i]}" "$FORCE_FLAG" "${EXT_BRANCHES[$i]}"
     done
 
     echo ""
@@ -243,7 +225,7 @@ _delete_extension() {
 }
 
 # ======================================
-# 安装单个扩展
+# 安装单个扩展（带代理）
 # ======================================
 install_one() {
     local repo="$1"
